@@ -10,17 +10,23 @@ export class PatternRecognition {
     const { closes, highs, lows, volumes } = marketData
 
     try {
-      // 1. Candlestick Patterns
-      patterns.push(...this.detectCandlestickPatterns(closes, highs, lows))
+      if (!closes || closes.length < 10) {
+        return []
+      }
 
-      // 2. Chart Patterns
-      patterns.push(...this.detectChartPatterns(closes))
+      // 1. Basit trend analizi
+      const trendPatterns = this.detectTrendPatterns(closes)
+      patterns.push(...trendPatterns)
 
-      // 3. Volume Patterns
-      patterns.push(...this.detectVolumePatterns(closes, volumes))
+      // 2. Support/Resistance seviyeleri
+      const supportResistance = this.findBasicSupportResistance(closes)
+      patterns.push(...supportResistance)
 
-      // 4. Fibonacci Patterns
-      patterns.push(...this.detectFibonacciPatterns(closes, highs, lows))
+      // 3. Volume pattern analizi
+      if (volumes && volumes.length > 0) {
+        const volumePatterns = this.detectBasicVolumePatterns(closes, volumes)
+        patterns.push(...volumePatterns)
+      }
 
       return patterns.filter((pattern) => pattern.confidence > 60)
     } catch (error) {
@@ -29,201 +35,40 @@ export class PatternRecognition {
     }
   }
 
-  detectCandlestickPatterns(closes, highs, lows) {
+  detectTrendPatterns(closes) {
     const patterns = []
     const len = closes.length
 
-    if (len < 3) return patterns
+    if (len < 10) return patterns
 
-    // Doji Pattern
-    for (let i = len - 10; i < len; i++) {
-      if (i < 1) continue
+    // Son 10 mumda trend analizi
+    const recent = closes.slice(-10)
+    const trend = this.calculateSimpleTrend(recent)
 
-      const open = i > 0 ? closes[i - 1] : closes[i]
-      const close = closes[i]
-      const high = highs[i]
-      const low = lows[i]
-
-      const bodySize = Math.abs(close - open)
-      const totalRange = high - low
-
-      // Doji: Küçük gövde
-      if (bodySize < totalRange * 0.1) {
-        patterns.push({
-          name: "Doji",
-          type: "neutral",
-          strength: 1,
-          confidence: 70,
-          position: i,
-          description: "Kararsızlık sinyali",
-        })
-      }
-    }
-
-    // Hammer Pattern
-    for (let i = len - 5; i < len; i++) {
-      if (i < 1) continue
-
-      const open = i > 0 ? closes[i - 1] : closes[i]
-      const close = closes[i]
-      const high = highs[i]
-      const low = lows[i]
-
-      const bodySize = Math.abs(close - open)
-      const lowerShadow = Math.min(open, close) - low
-      const upperShadow = high - Math.max(open, close)
-
-      // Hammer: Uzun alt gölge, kısa üst gölge
-      if (lowerShadow > bodySize * 2 && upperShadow < bodySize * 0.5) {
-        patterns.push({
-          name: "Hammer",
-          type: "bullish",
-          strength: 2,
-          confidence: 75,
-          position: i,
-          description: "Yükseliş dönüş sinyali",
-        })
-      }
-    }
-
-    return patterns
-  }
-
-  detectChartPatterns(closes) {
-    const patterns = []
-    const len = closes.length
-
-    if (len < 20) return patterns
-
-    // Support/Resistance Levels
-    const supportResistance = this.findSupportResistance(closes)
-    patterns.push(...supportResistance)
-
-    // Trend Lines
-    const trends = this.detectTrendLines(closes)
-    patterns.push(...trends)
-
-    // Double Top/Bottom
-    const doublePatterns = this.detectDoublePatterns(closes)
-    patterns.push(...doublePatterns)
-
-    return patterns
-  }
-
-  findSupportResistance(closes) {
-    const patterns = []
-    const len = closes.length
-    const lookback = 10
-
-    // Son 50 mumda destek/direnç seviyeleri ara
-    const levels = []
-
-    for (let i = lookback; i < Math.min(len - lookback, len - 10); i++) {
-      let isSupport = true
-      let isResistance = true
-
-      // Destek seviyesi kontrolü
-      for (let j = i - lookback; j <= i + lookback; j++) {
-        if (j !== i && closes[j] < closes[i]) {
-          isSupport = false
-          break
-        }
-      }
-
-      // Direnç seviyesi kontrolü
-      for (let j = i - lookback; j <= i + lookback; j++) {
-        if (j !== i && closes[j] > closes[i]) {
-          isResistance = false
-          break
-        }
-      }
-
-      if (isSupport) {
-        levels.push({
-          type: "support",
-          price: closes[i],
-          position: i,
-          strength: this.calculateLevelStrength(closes, i, "support"),
-        })
-      }
-
-      if (isResistance) {
-        levels.push({
-          type: "resistance",
-          price: closes[i],
-          position: i,
-          strength: this.calculateLevelStrength(closes, i, "resistance"),
-        })
-      }
-    }
-
-    // En güçlü seviyeleri pattern olarak ekle
-    levels.sort((a, b) => b.strength - a.strength)
-    levels.slice(0, 3).forEach((level) => {
-      patterns.push({
-        name: level.type === "support" ? "Support Level" : "Resistance Level",
-        type: level.type === "support" ? "bullish" : "bearish",
-        strength: level.strength,
-        confidence: Math.min(90, 50 + level.strength * 10),
-        position: level.position,
-        price: level.price,
-        description: `${level.type === "support" ? "Destek" : "Direnç"} seviyesi: $${level.price.toFixed(4)}`,
-      })
-    })
-
-    return patterns
-  }
-
-  calculateLevelStrength(closes, position, type) {
-    let strength = 0
-    const price = closes[position]
-    const tolerance = price * 0.005 // %0.5 tolerans
-
-    // Seviyeye kaç kez dokunulduğunu say
-    for (let i = 0; i < closes.length; i++) {
-      if (Math.abs(closes[i] - price) <= tolerance) {
-        strength++
-      }
-    }
-
-    return Math.min(5, strength)
-  }
-
-  detectTrendLines(closes) {
-    const patterns = []
-    const len = closes.length
-
-    if (len < 30) return patterns
-
-    // Basit trend analizi
-    const shortTrend = this.calculateTrend(closes.slice(-10))
-    const mediumTrend = this.calculateTrend(closes.slice(-20))
-    const longTrend = this.calculateTrend(closes.slice(-30))
-
-    if (shortTrend.slope > 0 && mediumTrend.slope > 0) {
+    if (trend.slope > 0.001) {
       patterns.push({
         name: "Uptrend",
         type: "bullish",
         strength: 2,
-        confidence: 80,
+        confidence: 75,
         position: len - 1,
-        description: "Yükseliş trendi devam ediyor",
+        description: "Yükseliş trendi tespit edildi",
       })
-    } else if (shortTrend.slope < 0 && mediumTrend.slope < 0) {
+    } else if (trend.slope < -0.001) {
       patterns.push({
         name: "Downtrend",
         type: "bearish",
         strength: 2,
-        confidence: 80,
+        confidence: 75,
         position: len - 1,
-        description: "Düşüş trendi devam ediyor",
+        description: "Düşüş trendi tespit edildi",
       })
     }
 
     return patterns
   }
 
-  calculateTrend(prices) {
+  calculateSimpleTrend(prices) {
     const n = prices.length
     const x = Array.from({ length: n }, (_, i) => i)
     const y = prices
@@ -239,78 +84,73 @@ export class PatternRecognition {
     return { slope, intercept }
   }
 
-  detectDoublePatterns(closes) {
+  findBasicSupportResistance(closes) {
     const patterns = []
-    // Double top/bottom pattern detection logic
-    // Bu karmaşık bir algoritma, basitleştirilmiş versiyonu
-    return patterns
-  }
+    const len = closes.length
 
-  detectVolumePatterns(closes, volumes) {
-    const patterns = []
+    if (len < 20) return patterns
 
-    if (!volumes || volumes.length < 10) return patterns
+    // Son 20 mumda en yüksek ve en düşük noktaları bul
+    const recent = closes.slice(-20)
+    const maxPrice = Math.max(...recent)
+    const minPrice = Math.min(...recent)
+    const currentPrice = closes[len - 1]
 
-    const avgVolume = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20
-    const currentVolume = volumes[volumes.length - 1]
-    const currentPrice = closes[closes.length - 1]
-    const previousPrice = closes[closes.length - 2]
+    // Direnç seviyesi yakınında mı?
+    if (Math.abs(currentPrice - maxPrice) / maxPrice < 0.02) {
+      patterns.push({
+        name: "Resistance Level",
+        type: "bearish",
+        strength: 2,
+        confidence: 70,
+        position: len - 1,
+        price: maxPrice,
+        description: `Direnç seviyesi: $${maxPrice.toFixed(4)}`,
+      })
+    }
 
-    // Volume spike with price movement
-    if (currentVolume > avgVolume * 2) {
-      const priceChange = (currentPrice - previousPrice) / previousPrice
-
-      if (Math.abs(priceChange) > 0.02) {
-        // %2'den fazla hareket
-        patterns.push({
-          name: "Volume Spike",
-          type: priceChange > 0 ? "bullish" : "bearish",
-          strength: 3,
-          confidence: 85,
-          position: closes.length - 1,
-          description: `Yüksek hacimle ${priceChange > 0 ? "yükseliş" : "düşüş"}`,
-        })
-      }
+    // Destek seviyesi yakınında mı?
+    if (Math.abs(currentPrice - minPrice) / minPrice < 0.02) {
+      patterns.push({
+        name: "Support Level",
+        type: "bullish",
+        strength: 2,
+        confidence: 70,
+        position: len - 1,
+        price: minPrice,
+        description: `Destek seviyesi: $${minPrice.toFixed(4)}`,
+      })
     }
 
     return patterns
   }
 
-  detectFibonacciPatterns(closes, highs, lows) {
+  detectBasicVolumePatterns(closes, volumes) {
     const patterns = []
-    const len = closes.length
 
-    if (len < 50) return patterns
+    if (volumes.length < 10) return patterns
 
-    // Son 50 mumda en yüksek ve en düşük noktaları bul
-    const recentData = closes.slice(-50)
-    const recentHighs = highs.slice(-50)
-    const recentLows = lows.slice(-50)
+    const avgVolume = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10
+    const currentVolume = volumes[volumes.length - 1]
+    const currentPrice = closes[closes.length - 1]
+    const previousPrice = closes[closes.length - 2]
 
-    const maxPrice = Math.max(...recentHighs)
-    const minPrice = Math.min(...recentLows)
-    const range = maxPrice - minPrice
+    // Volume spike with price movement
+    if (currentVolume > avgVolume * 1.5) {
+      const priceChange = (currentPrice - previousPrice) / previousPrice
 
-    // Fibonacci seviyeleri
-    const fibLevels = [0.236, 0.382, 0.5, 0.618, 0.786]
-    const currentPrice = closes[len - 1]
-
-    fibLevels.forEach((level) => {
-      const fibPrice = maxPrice - range * level
-      const tolerance = range * 0.01 // %1 tolerans
-
-      if (Math.abs(currentPrice - fibPrice) <= tolerance) {
+      if (Math.abs(priceChange) > 0.01) {
+        // %1'den fazla hareket
         patterns.push({
-          name: `Fibonacci ${(level * 100).toFixed(1)}%`,
-          type: "neutral",
+          name: "Volume Spike",
+          type: priceChange > 0 ? "bullish" : "bearish",
           strength: 2,
-          confidence: 70,
-          position: len - 1,
-          price: fibPrice,
-          description: `Fibonacci ${(level * 100).toFixed(1)}% seviyesinde`,
+          confidence: 80,
+          position: closes.length - 1,
+          description: `Yüksek hacimle ${priceChange > 0 ? "yükseliş" : "düşüş"}`,
         })
       }
-    })
+    }
 
     return patterns
   }

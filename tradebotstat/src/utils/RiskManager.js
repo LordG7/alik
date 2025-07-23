@@ -9,56 +9,68 @@ export class RiskManager {
     let riskScore = 0
     const factors = []
 
-    // 1. Volatilite riski
-    const atr = technicalSignals.find((t) => t.name === "ATR")
-    if (atr) {
-      const volatility = Number.parseFloat(atr.value) / marketData.currentPrice
-      if (volatility > this.volatilityThreshold) {
-        riskScore += 30
-        factors.push("Yüksek volatilite")
+    try {
+      // 1. Volatilite riski
+      const atr = technicalSignals.find((t) => t.name === "ATR")
+      if (atr && atr.value) {
+        const volatility = Number.parseFloat(atr.value) / marketData.currentPrice
+        if (volatility > this.volatilityThreshold) {
+          riskScore += 30
+          factors.push("Yüksek volatilite")
+        }
       }
-    }
 
-    // 2. Spread riski
-    if (marketData.spread) {
-      const spreadPercent = marketData.spread / marketData.currentPrice
-      if (spreadPercent > 0.001) {
-        // %0.1'den fazla spread
-        riskScore += 20
-        factors.push("Geniş spread")
+      // 2. Spread riski
+      if (marketData.spread) {
+        const spreadPercent = marketData.spread / marketData.currentPrice
+        if (spreadPercent > 0.001) {
+          // %0.1'den fazla spread
+          riskScore += 20
+          factors.push("Geniş spread")
+        }
       }
-    }
 
-    // 3. Volume riski
-    if (marketData.volume < marketData.avgVolume * 0.5) {
-      riskScore += 25
-      factors.push("Düşük işlem hacmi")
-    }
-
-    // 4. Teknik indikatör uyumsuzluğu
-    const buySignals = technicalSignals.filter((t) => t.signal === "BUY").length
-    const sellSignals = technicalSignals.filter((t) => t.signal === "SELL").length
-    const totalSignals = buySignals + sellSignals
-
-    if (totalSignals > 0) {
-      const consensus = Math.max(buySignals, sellSignals) / totalSignals
-      if (consensus < 0.6) {
-        // %60'dan az konsensüs
-        riskScore += 25
-        factors.push("İndikatör uyumsuzluğu")
+      // 3. Volume riski
+      if (marketData.volume && marketData.avgVolume) {
+        if (marketData.volume < marketData.avgVolume * 0.5) {
+          riskScore += 25
+          factors.push("Düşük işlem hacmi")
+        }
       }
-    }
 
-    // Risk seviyesi belirleme
-    let level = "LOW"
-    if (riskScore > 70) level = "HIGH"
-    else if (riskScore > 40) level = "MEDIUM"
+      // 4. Teknik indikatör uyumsuzluğu
+      const buySignals = technicalSignals.filter((t) => t.signal === "BUY").length
+      const sellSignals = technicalSignals.filter((t) => t.signal === "SELL").length
+      const totalSignals = buySignals + sellSignals
 
-    return {
-      level,
-      score: riskScore,
-      factors,
-      recommendation: this.getRiskRecommendation(level, riskScore),
+      if (totalSignals > 0) {
+        const consensus = Math.max(buySignals, sellSignals) / totalSignals
+        if (consensus < 0.6) {
+          // %60'dan az konsensüs
+          riskScore += 25
+          factors.push("İndikatör uyumsuzluğu")
+        }
+      }
+
+      // Risk seviyesi belirleme
+      let level = "LOW"
+      if (riskScore > 70) level = "HIGH"
+      else if (riskScore > 40) level = "MEDIUM"
+
+      return {
+        level,
+        score: riskScore,
+        factors,
+        recommendation: this.getRiskRecommendation(level, riskScore),
+      }
+    } catch (error) {
+      console.error("Risk değerlendirme hatası:", error)
+      return {
+        level: "HIGH",
+        score: 100,
+        factors: ["Risk değerlendirme hatası"],
+        recommendation: "İşlem yapılması önerilmez.",
+      }
     }
   }
 
