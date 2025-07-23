@@ -2,51 +2,25 @@ const axios = require("axios")
 
 class NewsAnalysis {
   constructor() {
-    this.newsApiUrl = process.env.NEWS_API_URL
-    this.sentimentKeywords = {
-      positive: [
-        "bull",
-        "bullish",
-        "rise",
-        "surge",
-        "pump",
-        "moon",
-        "breakout",
-        "rally",
-        "gain",
-        "profit",
-        "buy",
-        "long",
-        "support",
-        "breakthrough",
-        "adoption",
-        "partnership",
-        "upgrade",
-      ],
-      negative: [
-        "bear",
-        "bearish",
-        "fall",
-        "crash",
-        "dump",
-        "drop",
-        "sell",
-        "short",
-        "resistance",
-        "decline",
-        "loss",
-        "fear",
-        "panic",
-        "regulation",
-        "ban",
-        "hack",
-        "scam",
-      ],
-    }
+    // Haber API'si kaldırıldı, sadece Binance verilerini kullanacağız
+    this.binanceApiUrl = process.env.BINANCE_API_URL
   }
 
   async analyze() {
     try {
+      // Geçici olarak haber analizi devre dışı bırak
+      console.log("📊 Sadece teknik analiz kullanılıyor (Binance API)")
+
+      return {
+        sentimentScore: 0, // Her zaman nötr
+        newsCount: 0,
+        positiveNews: 0,
+        negativeNews: 0,
+        summary: "📊 Sadece teknik analiz kullanılıyor (Binance API)",
+      }
+
+      // Orijinal kod (geçici olarak kapalı)
+      /*
       const response = await axios.get(this.newsApiUrl, {
         timeout: 10000,
       })
@@ -70,8 +44,6 @@ class NewsAnalysis {
       }
 
       const averageSentiment = newsCount > 0 ? totalSentiment / newsCount : 0
-
-      // Sentiment skorunu -3 ile +3 arasında normalize et
       const normalizedScore = Math.max(-3, Math.min(3, Math.round(averageSentiment * 3)))
 
       return {
@@ -81,6 +53,7 @@ class NewsAnalysis {
         negativeNews: negativeNews,
         summary: this.generateSummary(normalizedScore, positiveNews, negativeNews, newsCount),
       }
+      */
     } catch (error) {
       console.error("Haber analizi hatası:", error.message)
       return {
@@ -95,19 +68,57 @@ class NewsAnalysis {
     if (!text) return 0
 
     const lowerText = text.toLowerCase()
-    let sentiment = 0
+    const sentiment = 0
 
     // Pozitif kelimeler
-    for (const keyword of this.sentimentKeywords.positive) {
-      const matches = (lowerText.match(new RegExp(keyword, "g")) || []).length
-      sentiment += matches * 0.5
-    }
+    // const positiveKeywords = [
+    //   "bull",
+    //   "bullish",
+    //   "rise",
+    //   "surge",
+    //   "pump",
+    //   "moon",
+    //   "breakout",
+    //   "rally",
+    //   "gain",
+    //   "profit",
+    //   "buy",
+    //   "long",
+    //   "support",
+    //   "breakthrough",
+    //   "adoption",
+    //   "partnership",
+    //   "upgrade",
+    // ]
+    // for (const keyword of positiveKeywords) {
+    //   const matches = (lowerText.match(new RegExp(keyword, "g")) || []).length
+    //   sentiment += matches * 0.5
+    // }
 
     // Negatif kelimeler
-    for (const keyword of this.sentimentKeywords.negative) {
-      const matches = (lowerText.match(new RegExp(keyword, "g")) || []).length
-      sentiment -= matches * 0.5
-    }
+    // const negativeKeywords = [
+    //   "bear",
+    //   "bearish",
+    //   "fall",
+    //   "crash",
+    //   "dump",
+    //   "drop",
+    //   "sell",
+    //   "short",
+    //   "resistance",
+    //   "decline",
+    //   "loss",
+    //   "fear",
+    //   "panic",
+    //   "regulation",
+    //   "ban",
+    //   "hack",
+    //   "scam",
+    // ]
+    // for (const keyword of negativeKeywords) {
+    //   const matches = (lowerText.match(new RegExp(keyword, "g")) || []).length
+    //   sentiment -= matches * 0.5
+    // }
 
     return sentiment
   }
@@ -126,28 +137,38 @@ class NewsAnalysis {
     }
   }
 
-  // Korku & Açgözlülük Endeksi simülasyonu
-  getFearGreedIndex(sentiment, volatility) {
-    // 0-100 arası değer (0: Aşırı Korku, 100: Aşırı Açgözlülük)
-    let index = 50 // Nötr başlangıç
+  // Korku & Açgözlülük Endeksi simülasyonu (sadece volatilite bazlı)
+  async getFearGreedIndexWithBinanceData() {
+    try {
+      const response = await axios.get(this.binanceApiUrl, {
+        timeout: 10000,
+      })
 
-    // Sentiment etkisi
-    index += sentiment * 10
+      if (!response.data || !response.data.volatility) {
+        return { index: 50, label: "Nötr" }
+      }
 
-    // Volatilite etkisi (yüksek volatilite = korku)
-    index -= volatility * 200
+      const volatility = response.data.volatility
+      let index = 50 // Nötr başlangıç
 
-    // 0-100 arasında sınırla
-    index = Math.max(0, Math.min(100, index))
+      // Sadece volatilite etkisi (yüksek volatilite = korku)
+      index -= volatility * 200
 
-    let label = ""
-    if (index <= 25) label = "Aşırı Korku"
-    else if (index <= 45) label = "Korku"
-    else if (index <= 55) label = "Nötr"
-    else if (index <= 75) label = "Açgözlülük"
-    else label = "Aşırı Açgözlülük"
+      // 0-100 arasında sınırla
+      index = Math.max(0, Math.min(100, index))
 
-    return { index: Math.round(index), label }
+      let label = ""
+      if (index <= 25) label = "Aşırı Korku"
+      else if (index <= 45) label = "Korku"
+      else if (index <= 55) label = "Nötr"
+      else if (index <= 75) label = "Açgözlülük"
+      else label = "Aşırı Açgözlülük"
+
+      return { index: Math.round(index), label }
+    } catch (error) {
+      console.error("Binance veri çekme hatası:", error.message)
+      return { index: 50, label: "Nötr" }
+    }
   }
 }
 
