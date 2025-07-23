@@ -1,27 +1,16 @@
 {
-  "name": "inj-trading-bot",
+  "name": "inj-trading-signal-bot",
   "version": "1.0.0",
-  "description": "Advanced INJ/USDT Trading Bot with 15 Technical Indicators",
+  "description": "INJ/USDT Trading Signal Bot - Sadə və Effektiv",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "test": "node src/test.js"
+    "test": "node src/index.js"
   },
   "dependencies": {
     "telegraf": "^4.15.0",
     "binance-api-node": "^0.12.4",
-    "axios": "^1.6.0",
-    "moment-timezone": "^0.5.43",
-    "technicalindicators": "^3.1.0",
-    "node-cron": "^3.0.3",
-    "winston": "^3.11.0",
-    "dotenv": "^16.3.1",
-    "cheerio": "^1.0.0-rc.12",
-    "sentiment": "^5.0.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+    "dotenv": "^16.3.1"
   }
 }

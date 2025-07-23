@@ -1,428 +1,243 @@
 import { Telegraf } from "telegraf"
-import cron from "node-cron"
-import moment from "moment-timezone"
-import { TradingBot } from "./bot/TradingBot.js"
+import { BinanceService } from "./services/BinanceService.js"
+import { TechnicalAnalysis } from "./analysis/TechnicalAnalysis.js"
 import { Logger } from "./utils/Logger.js"
-import { Environment } from "./config/environment.js"
+import dotenv from "dotenv"
 
+dotenv.config()
+
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN)
+const binance = new BinanceService()
+const technical = new TechnicalAnalysis()
 const logger = new Logger()
 
-class MainBot {
+class TradingSignalBot {
   constructor() {
-    this.isActive = false
-    this.dailyTradeCount = 0
-    this.maxDailyTrades = 10
-    this.bakuTimezone = "Asia/Baku"
-    this.lastAnalysisTime = null
-    this.analysisInterval = 15000 // 15 saniye
-    this.bot = null
-    this.tradingBot = null
-    this.config = null
+    this.symbol = "INJUSDT"
   }
 
   async start() {
-    try {
-      logger.info("🚀 INJ/USDT Trading Bot başlatılıyor...")
+    logger.info("🚀 INJ Trading Signal Bot başladı")
 
-      // Environment variables'ları validate et
-      this.config = Environment.validate()
-      Environment.debug()
+    // Telegram komandları
+    bot.command("start", (ctx) => {
+      ctx.reply(`
+🎯 INJ/USDT Trading Signal Bot
 
-      // Telegram bot'u başlat
-      this.bot = new Telegraf(this.config.TELEGRAM_BOT_TOKEN)
-      this.tradingBot = new TradingBot()
+Bu bot sizə dəqiq trading siqnalları verir:
+• 15 dəqiqə, 30 dəqiqə, 1 saat, 4 saat analizi
+• LONG/SHORT yönü
+• Maksimum risk səviyyələri
+• Likvidasiya qorunması
 
-      // Bot başlangıç mesajı gönder
-      await this.sendStartupMessage()
+Komandalar:
+/signal - Canlı analiz və siqnal
+/help - Kömək
+      `)
+    })
 
-      // Telegram bot komutları
-      this.setupTelegramCommands()
-
-      // Ana analiz döngüsü - her 15 saniyede bir çalışır
-      cron.schedule("*/15 * * * * *", async () => {
-        await this.mainAnalysisLoop()
-      })
-
-      // Günlük reset - her gün 09:00'da
-      cron.schedule(
-        "0 9 * * *",
-        () => {
-          this.dailyTradeCount = 0
-          logger.info("📊 Günlük trade sayacı sıfırlandı")
-          this.sendDailyResetMessage()
-        },
-        {
-          timezone: this.bakuTimezone,
-        },
-      )
-
-      // Saatlik durum raporu
-      cron.schedule("0 * * * *", async () => {
-        await this.sendHourlyReport()
-      })
-
-      // Bot'u başlat
-      await this.bot.launch()
-      logger.info("✅ Bot başarıyla başlatıldı")
-
-      // Graceful shutdown
-      process.once("SIGINT", () => {
-        logger.info("🛑 SIGINT sinyali alındı, bot kapatılıyor...")
-        this.bot.stop("SIGINT")
-      })
-      process.once("SIGTERM", () => {
-        logger.info("🛑 SIGTERM sinyali alındı, bot kapatılıyor...")
-        this.bot.stop("SIGTERM")
-      })
-    } catch (error) {
-      logger.error("Bot başlatma hatası:", error)
-
-      if (error.message.includes("Missing required environment variables")) {
-        console.error("\n🔧 ÇÖZÜM:")
-        console.error("=========")
-        console.error("1. .env dosyasını kontrol edin")
-        console.error("2. Gerekli API anahtarlarının doğru olduğundan emin olun")
-        console.error("3. ./check-env.sh scriptini çalıştırın")
+    bot.command("signal", async (ctx) => {
+      try {
+        ctx.reply("🔍 Analiz edilir, gözləyin...")
+        const signal = await this.getFullSignal()
+        ctx.reply(signal)
+      } catch (error) {
+        ctx.reply("❌ Xəta: " + error.message)
       }
+    })
 
-      process.exit(1)
-    }
+    bot.command("help", (ctx) => {
+      ctx.reply(`
+📋 Komandalar:
+/signal - Tam analiz və trading siqnalı
+
+📊 Nə verir:
+• 15dəq, 30dəq, 1saat, 4saat analizi
+• LONG/SHORT tövsiyəsi
+• Maksimum risk həddləri
+• Likvidasiya qorunma səviyyələri
+
+⚠️ Risk: Həmişə stop-loss qoyun!
+      `)
+    })
+
+    // Hər 5 dəqiqədə avtomatik analiz
+    setInterval(
+      async () => {
+        try {
+          const signal = await this.getFullSignal()
+          await bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, signal)
+        } catch (error) {
+          logger.error("Avtomatik analiz xətası:", error)
+        }
+      },
+      5 * 60 * 1000,
+    ) // 5 dəqiqə
+
+    bot.launch()
+    logger.info("✅ Bot hazır!")
   }
 
-  async sendStartupMessage() {
+  async getFullSignal() {
     try {
-      const message = `
-🚀 INJ/USDT Trading Bot Başlatıldı!
+      // Müxtəlif timeframe-lər üçün data
+      const data15m = await binance.getMarketData(this.symbol, "15m", 50)
+      const data30m = await binance.getMarketData(this.symbol, "30m", 50)
+      const data1h = await binance.getMarketData(this.symbol, "1h", 50)
+      const data4h = await binance.getMarketData(this.symbol, "4h", 50)
 
-⏰ Başlatma Zamanı: ${moment().tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm:ss")}
-🎯 Hedef Başarı Oranı: %90
-📊 Analiz Sıklığı: Her 15 saniye
-💰 Günlük Max İşlem: ${this.maxDailyTrades}
+      // Hər timeframe üçün analiz
+      const signal15m = await technical.getSignal(data15m, "15m")
+      const signal30m = await technical.getSignal(data30m, "30m")
+      const signal1h = await technical.getSignal(data1h, "1h")
+      const signal4h = await technical.getSignal(data4h, "4h")
 
-🔍 15 Teknik İndikatör Aktif
-📰 Haber Sentiment Analizi Aktif
-😱 Korku/Açgözlülük Endeksi Aktif
+      // Ümumi qərar
+      const finalDecision = this.makeFinalDecision([signal15m, signal30m, signal1h, signal4h])
 
-Bot hazır ve çalışıyor! 🎉
-            `
-      await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
-      logger.info("✅ Başlangıç mesajı gönderildi")
+      // Risk hesablamaları
+      const riskLevels = this.calculateRiskLevels(data15m.currentPrice, data4h)
+
+      const currentTime = new Date().toLocaleString("az-AZ", { timeZone: "Asia/Baku" })
+
+      return `
+🎯 INJ/USDT TRADING SİQNALI
+
+💰 Cari Qiymət: $${data15m.currentPrice}
+⏰ Vaxt: ${currentTime}
+
+📊 TİMEFRAME ANALİZİ:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+📈 15 dəqiqə: ${signal15m.direction} (${signal15m.strength}%)
+📈 30 dəqiqə: ${signal30m.direction} (${signal30m.strength}%)
+📈 1 saat: ${signal1h.direction} (${signal1h.strength}%)
+📈 4 saat: ${signal4h.direction} (${signal4h.strength}%)
+
+🎯 ÜMUMİ QƏRAR: ${finalDecision.action}
+💪 Güvən: ${finalDecision.confidence}%
+
+${finalDecision.action === "LONG" ? "🟢" : "🔴"} ${finalDecision.action} AÇIN
+
+📊 RİSK SƏVİYYƏLƏRİ:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+${
+  finalDecision.action === "LONG"
+    ? `🔴 LONG üçün maksimum düşüş: $${riskLevels.longMaxDown}
+⚠️ Stop Loss: $${riskLevels.longStopLoss}
+🎯 Take Profit: $${riskLevels.longTakeProfit}`
+    : `🔴 SHORT üçün maksimum yüksəliş: $${riskLevels.shortMaxUp}
+⚠️ Stop Loss: $${riskLevels.shortStopLoss}
+🎯 Take Profit: $${riskLevels.shortTakeProfit}`
+}
+
+⚡ LİKVİDASİYA QORUNMASI:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Leverage: Maksimum 10x
+• Position ölçüsü: Balansın 5%-i
+• Stop Loss mütləq qoyun!
+
+${finalDecision.reasoning}
+
+⚠️ Risk xəbərdarlığı: Crypto trading yüksək risklidir!
+      `
     } catch (error) {
-      logger.error("Başlangıç mesajı gönderilemedi:", error)
-
-      if (error.response?.error_code === 401) {
-        throw new Error("Geçersiz Telegram bot token. Lütfen TELEGRAM_BOT_TOKEN'ı kontrol edin.")
-      } else if (error.response?.error_code === 400) {
-        throw new Error("Geçersiz chat ID. Lütfen TELEGRAM_CHAT_ID'yi kontrol edin.")
-      }
-
+      logger.error("Signal alma xətası:", error)
       throw error
     }
   }
 
-  setupTelegramCommands() {
-    this.bot.command("start", (ctx) => {
-      ctx.reply(`
-🤖 INJ/USDT Trading Bot Aktif!
+  makeFinalDecision(signals) {
+    let longScore = 0
+    let shortScore = 0
+    let totalStrength = 0
 
-📊 Özellikler:
-• 15 Teknik İndikatör Analizi
-• Haber Sentiment Analizi
-• Volatilite Tespiti
-• Risk Yönetimi
-• Günlük Max 10 İşlem
+    // Hər timeframe-in ağırlığı
+    const weights = {
+      "15m": 1,
+      "30m": 2,
+      "1h": 3,
+      "4h": 4,
+    }
 
-⏰ Çalışma Saatleri: 09:00-23:00 (Bakü Saati)
-💰 Hedef Başarı Oranı: %90
+    signals.forEach((signal) => {
+      const weight = weights[signal.timeframe]
+      const strength = signal.strength / 100
 
-Komutlar:
-/status - Bot durumu
-/analysis - Anlık analiz
-/stats - İstatistikler
-/help - Yardım
-            `)
+      if (signal.direction === "LONG") {
+        longScore += weight * strength
+      } else if (signal.direction === "SHORT") {
+        shortScore += weight * strength
+      }
+
+      totalStrength += weight * strength
     })
 
-    this.bot.command("status", async (ctx) => {
-      try {
-        const status = await this.getBotStatus()
-        ctx.reply(status)
-      } catch (error) {
-        ctx.reply("❌ Durum bilgisi alınamadı: " + error.message)
-      }
+    const confidence = Math.round((Math.max(longScore, shortScore) / (longScore + shortScore)) * 100)
+    const action = longScore > shortScore ? "LONG" : "SHORT"
+
+    // Qərar səbəbi
+    let reasoning = "📋 Analiz əsasları:\n"
+    signals.forEach((signal) => {
+      reasoning += `• ${signal.timeframe}: ${signal.direction} (${signal.reason})\n`
     })
 
-    this.bot.command("analysis", async (ctx) => {
-      try {
-        ctx.reply("🔍 Analiz yapılıyor, lütfen bekleyin...")
-        const analysis = await this.tradingBot.performFullAnalysis()
-        ctx.reply(this.formatAnalysis(analysis))
-      } catch (error) {
-        ctx.reply("❌ Analiz sırasında hata oluştu: " + error.message)
-        logger.error("Manuel analiz hatası:", error)
-      }
-    })
-
-    this.bot.command("stats", async (ctx) => {
-      try {
-        const stats = await this.tradingBot.getStatistics()
-        ctx.reply(this.formatStats(stats))
-      } catch (error) {
-        ctx.reply("❌ İstatistik bilgisi alınamadı: " + error.message)
-      }
-    })
-
-    this.bot.command("help", (ctx) => {
-      ctx.reply(`
-📋 INJ Trading Bot Komutları:
-
-/start - Bot bilgileri ve menü
-/status - Bot durumu ve çalışma bilgileri
-/analysis - Anlık piyasa analizi (15 indikatör)
-/stats - Performans istatistikleri
-/help - Bu yardım menüsü
-
-🔔 Otomatik Bildirimler:
-• Trading sinyalleri (%85+ güven)
-• Volatilite uyarıları
-• Günlük raporlar
-• Saatlik durum güncellemeleri
-
-⚠️ Not: Bot sadece analiz yapar, işlemler manuel yapılmalıdır.
-            `)
-    })
-
-    // Hata yakalama
-    this.bot.catch((err, ctx) => {
-      logger.error(`Telegram bot hatası: ${err}`)
-      if (ctx) {
-        ctx.reply("❌ Bir hata oluştu, lütfen tekrar deneyin.")
-      }
-    })
-  }
-
-  async mainAnalysisLoop() {
-    try {
-      const bakuTime = moment().tz(this.bakuTimezone)
-      const hour = bakuTime.hour()
-
-      // Çalışma saatleri kontrolü (09:00-23:00)
-      if (hour < 9 || hour >= 23) {
-        this.isActive = false
-        return
-      }
-
-      this.isActive = true
-
-      // Günlük trade limiti kontrolü
-      if (this.dailyTradeCount >= this.maxDailyTrades) {
-        return
-      }
-
-      // Rate limiting - son analizden 15 saniye geçmiş mi?
-      const now = Date.now()
-      if (this.lastAnalysisTime && now - this.lastAnalysisTime < this.analysisInterval) {
-        return
-      }
-
-      this.lastAnalysisTime = now
-
-      // Ana analiz
-      const analysis = await this.tradingBot.performFullAnalysis()
-
-      if (analysis.signal && analysis.signal !== "HOLD" && analysis.confidence >= 85) {
-        await this.sendTradingSignal(analysis)
-        this.dailyTradeCount++
-
-        // İstatistikleri güncelle
-        this.tradingBot.statistics.totalSignals++
-      }
-
-      // Volatilite uyarısı
-      if (analysis.volatilityAlert) {
-        await this.sendVolatilityAlert(analysis)
-      }
-    } catch (error) {
-      logger.error("Ana analiz döngüsünde hata:", error)
-
-      // Kritik hata durumunda bildirim gönder
-      if (error.message.includes("ENOTFOUND") || error.message.includes("timeout")) {
-        await this.sendErrorAlert("Bağlantı hatası: " + error.message)
-      }
+    return {
+      action,
+      confidence,
+      reasoning,
+      longScore: longScore.toFixed(2),
+      shortScore: shortScore.toFixed(2),
     }
   }
 
-  async sendTradingSignal(analysis) {
-    const message = `
-🎯 TRADING SİNYALİ - INJ/USDT
+  calculateRiskLevels(currentPrice, data4h) {
+    const price = Number.parseFloat(currentPrice)
 
-📊 Sinyal: ${analysis.signal}
-💰 Giriş Fiyatı: $${analysis.entryPrice}
-🛑 Stop Loss: $${analysis.stopLoss}
-🎯 Take Profit: $${analysis.takeProfit}
-📈 Güven Oranı: %${analysis.confidence}
+    // ATR hesabla (volatilite)
+    const atr = this.calculateATR(data4h.highs, data4h.lows, data4h.closes, 14)
+    const atrValue = atr[atr.length - 1] || price * 0.03
 
-📋 Analiz Detayları:
-${analysis.indicators
-  .slice(0, 8)
-  .map((ind) => `• ${ind.name}: ${ind.value} (${ind.signal})`)
-  .join("\n")}
+    // Support/Resistance səviyyələri
+    const support = Math.min(...data4h.lows.slice(-20))
+    const resistance = Math.max(...data4h.highs.slice(-20))
 
-⚠️ Risk Seviyesi: ${analysis.riskLevel}
-📰 Haber Sentiment: ${analysis.newsSentiment}
-😱 Korku/Açgözlülük: ${analysis.fearGreedIndex}
+    return {
+      // LONG riskləri
+      longMaxDown: (price - atrValue * 3).toFixed(4),
+      longStopLoss: (price - atrValue * 2).toFixed(4),
+      longTakeProfit: (price + atrValue * 3).toFixed(4),
 
-📊 Günlük İşlem: ${this.dailyTradeCount + 1}/${this.maxDailyTrades}
-⏰ Zaman: ${moment().tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm:ss")}
-        `
+      // SHORT riskləri
+      shortMaxUp: (price + atrValue * 3).toFixed(4),
+      shortStopLoss: (price + atrValue * 2).toFixed(4),
+      shortTakeProfit: (price - atrValue * 3).toFixed(4),
 
-    await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
-    logger.info(`Trading sinyali gönderildi: ${analysis.signal} - Güven: %${analysis.confidence}`)
-  }
-
-  async sendVolatilityAlert(analysis) {
-    const message = `
-⚠️ VOLATİLİTE UYARISI - INJ/USDT
-
-📊 Volatilite Seviyesi: ${analysis.volatilityLevel}
-📈 Fiyat Değişimi: %${analysis.priceChange}
-📰 Haber Etkisi: ${analysis.newsImpact || "Normal"}
-
-🔍 Detaylar:
-${analysis.volatilityReasons?.join("\n") || "Yüksek volatilite tespit edildi"}
-
-💰 Güncel Fiyat: $${analysis.currentPrice}
-⏰ ${moment().tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm:ss")}
-        `
-
-    await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
-    logger.info(`Volatilite uyarısı gönderildi: ${analysis.volatilityLevel}`)
-  }
-
-  async sendErrorAlert(errorMessage) {
-    try {
-      const message = `
-❌ BOT HATA UYARISI
-
-🔧 Hata: ${errorMessage}
-⏰ Zaman: ${moment().tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm:ss")}
-
-Bot çalışmaya devam ediyor, ancak bu hatayı kontrol edin.
-        `
-      await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
-    } catch (telegramError) {
-      logger.error("Hata uyarısı gönderilemedi:", telegramError)
+      // Əlavə məlumatlar
+      support: support.toFixed(4),
+      resistance: resistance.toFixed(4),
+      atr: atrValue.toFixed(4),
     }
   }
 
-  async sendDailyResetMessage() {
-    try {
-      const message = `
-🌅 GÜNLÜK RESET - INJ/USDT Bot
+  calculateATR(highs, lows, closes, period) {
+    const trueRanges = []
 
-📅 Tarih: ${moment().tz(this.bakuTimezone).format("DD/MM/YYYY")}
-🔄 Günlük trade sayacı sıfırlandı
-📊 Yeni gün için hazır: 0/${this.maxDailyTrades}
-
-Bot aktif ve analiz yapmaya devam ediyor! 🚀
-        `
-      await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
-    } catch (error) {
-      logger.error("Günlük reset mesajı gönderilemedi:", error)
+    for (let i = 1; i < highs.length; i++) {
+      const tr1 = highs[i] - lows[i]
+      const tr2 = Math.abs(highs[i] - closes[i - 1])
+      const tr3 = Math.abs(lows[i] - closes[i - 1])
+      trueRanges.push(Math.max(tr1, tr2, tr3))
     }
-  }
 
-  async sendHourlyReport() {
-    try {
-      if (!this.isActive) return // Sadece aktif saatlerde rapor gönder
-
-      const stats = await this.tradingBot.getStatistics()
-      const bakuTime = moment().tz(this.bakuTimezone)
-
-      const message = `
-📊 SAATLİK DURUM RAPORU
-
-⏰ Saat: ${bakuTime.format("HH:mm")} (Bakü)
-🎯 Günlük İşlem: ${this.dailyTradeCount}/${this.maxDailyTrades}
-📈 Toplam Sinyal: ${stats.totalSignals}
-🟢 Bot Durumu: ${this.isActive ? "Aktif" : "Pasif"}
-
-Bot normal çalışıyor ✅
-        `
-
-      // Sadece çalışma saatlerinin ilk ve son saatinde gönder
-      if (bakuTime.hour() === 9 || bakuTime.hour() === 22) {
-        await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
-      }
-    } catch (error) {
-      logger.error("Saatlik rapor gönderilemedi:", error)
+    const atr = []
+    for (let i = period - 1; i < trueRanges.length; i++) {
+      const sum = trueRanges.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0)
+      atr.push(sum / period)
     }
-  }
 
-  async getBotStatus() {
-    const bakuTime = moment().tz(this.bakuTimezone)
-    const stats = await this.tradingBot.getStatistics()
-
-    return `
-📊 Bot Durumu
-
-🟢 Aktif: ${this.isActive ? "Evet" : "Hayır"}
-⏰ Bakü Saati: ${bakuTime.format("DD/MM/YYYY HH:mm:ss")}
-📈 Günlük İşlem: ${this.dailyTradeCount}/${this.maxDailyTrades}
-💰 Coin: INJ/USDT
-📊 Timeframe: 15 dakika
-
-📈 Toplam Sinyal: ${stats.totalSignals}
-⏱️ Çalışma Süresi: ${stats.uptime}
-🎯 Hedef Başarı: %90
-
-${this.isActive ? "🟢 Bot çalışıyor" : "🔴 Bot çalışma saatleri dışında"}
-        `
-  }
-
-  formatAnalysis(analysis) {
-    return `
-📊 CANLI ANALİZ - INJ/USDT
-
-💰 Güncel Fiyat: $${analysis.currentPrice}
-📈 24s Değişim: %${analysis.priceChange24h}
-📊 Volume: ${Number(analysis.volume).toLocaleString()}
-
-🔍 Teknik İndikatörler (İlk 10):
-${analysis.indicators
-  .slice(0, 10)
-  .map((ind) => `${ind.signal === "BUY" ? "🟢" : ind.signal === "SELL" ? "🔴" : "🟡"} ${ind.name}: ${ind.value}`)
-  .join("\n")}
-
-📰 Haber Sentiment: ${analysis.newsSentiment} (${analysis.newsImpact})
-😱 Korku/Açgözlülük: ${analysis.fearGreedIndex}
-📊 Volatilite: ${analysis.volatilityLevel}
-
-⚠️ Genel Değerlendirme: ${analysis.overallSignal}
-🎯 Sinyal: ${analysis.signal} (%${analysis.confidence} güven)
-        `
-  }
-
-  formatStats(stats) {
-    return `
-📊 İSTATİSTİKLER
-
-🎯 Başarı Oranı: %${stats.successRate}
-📈 Toplam Sinyal: ${stats.totalSignals}
-✅ Başarılı: ${stats.successfulSignals}
-❌ Başarısız: ${stats.failedSignals}
-💰 Ortalama Kar: %${stats.averageProfit}
-
-⏱️ Çalışma Süresi: ${stats.uptime}
-📅 Başlangıç: ${moment(this.tradingBot.statistics.startTime).tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm")}
-
-🤖 Bot performansı normal seviyelerde
-        `
+    return atr
   }
 }
 
-const mainBot = new MainBot()
-mainBot.start().catch((error) => {
-  console.error("Bot başlatma hatası:", error)
-  process.exit(1)
-})
+const tradingBot = new TradingSignalBot()
+tradingBot.start().catch(console.error)
