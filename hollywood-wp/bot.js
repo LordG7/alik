@@ -5,9 +5,9 @@ const bot = new Telegraf(token); // Use config_data for better security
 bot.use(session());
 bot.start((ctx) => {
   ctx.reply(
-    'Contact me:',
+    'Bizimlə Əlaqə:',
     Markup.inlineKeyboard([
-      Markup.button.url('📱 Contact Me', 'https://wa.me/79232874777'),
+      Markup.button.url('Whatsapp', 'https://wa.me/79232874777'),
     ])
   );
 });
