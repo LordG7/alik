@@ -56,7 +56,7 @@ class CryptoTradingBot {
 
   setupScheduler() {
     // Her 15 dakikada bir analiz yap
-    cron.schedule("*/15 * * * *", async () => {
+    cron.schedule("*/1 * * * *", async () => {
       if (this.isOperatingHours && this.chatId) {
         await this.performAnalysis()
       }
