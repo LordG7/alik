@@ -3,12 +3,8 @@ import cron from "node-cron"
 import moment from "moment-timezone"
 import { TradingBot } from "./bot/TradingBot.js"
 import { Logger } from "./utils/Logger.js"
-import dotenv from "dotenv"
+import { Environment } from "./config/environment.js"
 
-dotenv.config()
-
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN)
-const tradingBot = new TradingBot()
 const logger = new Logger()
 
 class MainBot {
@@ -19,11 +15,22 @@ class MainBot {
     this.bakuTimezone = "Asia/Baku"
     this.lastAnalysisTime = null
     this.analysisInterval = 15000 // 15 saniye
+    this.bot = null
+    this.tradingBot = null
+    this.config = null
   }
 
   async start() {
     try {
       logger.info("🚀 INJ/USDT Trading Bot başlatılıyor...")
+
+      // Environment variables'ları validate et
+      this.config = Environment.validate()
+      Environment.debug()
+
+      // Telegram bot'u başlat
+      this.bot = new Telegraf(this.config.TELEGRAM_BOT_TOKEN)
+      this.tradingBot = new TradingBot()
 
       // Bot başlangıç mesajı gönder
       await this.sendStartupMessage()
@@ -54,14 +61,30 @@ class MainBot {
         await this.sendHourlyReport()
       })
 
-      bot.launch()
+      // Bot'u başlat
+      await this.bot.launch()
       logger.info("✅ Bot başarıyla başlatıldı")
 
       // Graceful shutdown
-      process.once("SIGINT", () => bot.stop("SIGINT"))
-      process.once("SIGTERM", () => bot.stop("SIGTERM"))
+      process.once("SIGINT", () => {
+        logger.info("🛑 SIGINT sinyali alındı, bot kapatılıyor...")
+        this.bot.stop("SIGINT")
+      })
+      process.once("SIGTERM", () => {
+        logger.info("🛑 SIGTERM sinyali alındı, bot kapatılıyor...")
+        this.bot.stop("SIGTERM")
+      })
     } catch (error) {
       logger.error("Bot başlatma hatası:", error)
+
+      if (error.message.includes("Missing required environment variables")) {
+        console.error("\n🔧 ÇÖZÜM:")
+        console.error("=========")
+        console.error("1. .env dosyasını kontrol edin")
+        console.error("2. Gerekli API anahtarlarının doğru olduğundan emin olun")
+        console.error("3. ./check-env.sh scriptini çalıştırın")
+      }
+
       process.exit(1)
     }
   }
@@ -82,14 +105,23 @@ class MainBot {
 
 Bot hazır ve çalışıyor! 🎉
             `
-      await bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, message)
+      await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
+      logger.info("✅ Başlangıç mesajı gönderildi")
     } catch (error) {
       logger.error("Başlangıç mesajı gönderilemedi:", error)
+
+      if (error.response?.error_code === 401) {
+        throw new Error("Geçersiz Telegram bot token. Lütfen TELEGRAM_BOT_TOKEN'ı kontrol edin.")
+      } else if (error.response?.error_code === 400) {
+        throw new Error("Geçersiz chat ID. Lütfen TELEGRAM_CHAT_ID'yi kontrol edin.")
+      }
+
+      throw error
     }
   }
 
   setupTelegramCommands() {
-    bot.command("start", (ctx) => {
+    this.bot.command("start", (ctx) => {
       ctx.reply(`
 🤖 INJ/USDT Trading Bot Aktif!
 
@@ -111,7 +143,7 @@ Komutlar:
             `)
     })
 
-    bot.command("status", async (ctx) => {
+    this.bot.command("status", async (ctx) => {
       try {
         const status = await this.getBotStatus()
         ctx.reply(status)
@@ -120,10 +152,10 @@ Komutlar:
       }
     })
 
-    bot.command("analysis", async (ctx) => {
+    this.bot.command("analysis", async (ctx) => {
       try {
         ctx.reply("🔍 Analiz yapılıyor, lütfen bekleyin...")
-        const analysis = await tradingBot.performFullAnalysis()
+        const analysis = await this.tradingBot.performFullAnalysis()
         ctx.reply(this.formatAnalysis(analysis))
       } catch (error) {
         ctx.reply("❌ Analiz sırasında hata oluştu: " + error.message)
@@ -131,16 +163,16 @@ Komutlar:
       }
     })
 
-    bot.command("stats", async (ctx) => {
+    this.bot.command("stats", async (ctx) => {
       try {
-        const stats = await tradingBot.getStatistics()
+        const stats = await this.tradingBot.getStatistics()
         ctx.reply(this.formatStats(stats))
       } catch (error) {
         ctx.reply("❌ İstatistik bilgisi alınamadı: " + error.message)
       }
     })
 
-    bot.command("help", (ctx) => {
+    this.bot.command("help", (ctx) => {
       ctx.reply(`
 📋 INJ Trading Bot Komutları:
 
@@ -161,9 +193,11 @@ Komutlar:
     })
 
     // Hata yakalama
-    bot.catch((err, ctx) => {
+    this.bot.catch((err, ctx) => {
       logger.error(`Telegram bot hatası: ${err}`)
-      ctx.reply("❌ Bir hata oluştu, lütfen tekrar deneyin.")
+      if (ctx) {
+        ctx.reply("❌ Bir hata oluştu, lütfen tekrar deneyin.")
+      }
     })
   }
 
@@ -194,14 +228,14 @@ Komutlar:
       this.lastAnalysisTime = now
 
       // Ana analiz
-      const analysis = await tradingBot.performFullAnalysis()
+      const analysis = await this.tradingBot.performFullAnalysis()
 
       if (analysis.signal && analysis.signal !== "HOLD" && analysis.confidence >= 85) {
         await this.sendTradingSignal(analysis)
         this.dailyTradeCount++
 
         // İstatistikleri güncelle
-        tradingBot.statistics.totalSignals++
+        this.tradingBot.statistics.totalSignals++
       }
 
       // Volatilite uyarısı
@@ -242,7 +276,7 @@ ${analysis.indicators
 ⏰ Zaman: ${moment().tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm:ss")}
         `
 
-    await bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, message)
+    await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
     logger.info(`Trading sinyali gönderildi: ${analysis.signal} - Güven: %${analysis.confidence}`)
   }
 
@@ -261,7 +295,7 @@ ${analysis.volatilityReasons?.join("\n") || "Yüksek volatilite tespit edildi"}
 ⏰ ${moment().tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm:ss")}
         `
 
-    await bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, message)
+    await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
     logger.info(`Volatilite uyarısı gönderildi: ${analysis.volatilityLevel}`)
   }
 
@@ -275,7 +309,7 @@ ${analysis.volatilityReasons?.join("\n") || "Yüksek volatilite tespit edildi"}
 
 Bot çalışmaya devam ediyor, ancak bu hatayı kontrol edin.
         `
-      await bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, message)
+      await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
     } catch (telegramError) {
       logger.error("Hata uyarısı gönderilemedi:", telegramError)
     }
@@ -292,7 +326,7 @@ Bot çalışmaya devam ediyor, ancak bu hatayı kontrol edin.
 
 Bot aktif ve analiz yapmaya devam ediyor! 🚀
         `
-      await bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, message)
+      await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
     } catch (error) {
       logger.error("Günlük reset mesajı gönderilemedi:", error)
     }
@@ -302,7 +336,7 @@ Bot aktif ve analiz yapmaya devam ediyor! 🚀
     try {
       if (!this.isActive) return // Sadece aktif saatlerde rapor gönder
 
-      const stats = await tradingBot.getStatistics()
+      const stats = await this.tradingBot.getStatistics()
       const bakuTime = moment().tz(this.bakuTimezone)
 
       const message = `
@@ -318,7 +352,7 @@ Bot normal çalışıyor ✅
 
       // Sadece çalışma saatlerinin ilk ve son saatinde gönder
       if (bakuTime.hour() === 9 || bakuTime.hour() === 22) {
-        await bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, message)
+        await this.bot.telegram.sendMessage(this.config.TELEGRAM_CHAT_ID, message)
       }
     } catch (error) {
       logger.error("Saatlik rapor gönderilemedi:", error)
@@ -327,7 +361,7 @@ Bot normal çalışıyor ✅
 
   async getBotStatus() {
     const bakuTime = moment().tz(this.bakuTimezone)
-    const stats = await tradingBot.getStatistics()
+    const stats = await this.tradingBot.getStatistics()
 
     return `
 📊 Bot Durumu
@@ -380,7 +414,7 @@ ${analysis.indicators
 💰 Ortalama Kar: %${stats.averageProfit}
 
 ⏱️ Çalışma Süresi: ${stats.uptime}
-📅 Başlangıç: ${moment(tradingBot.statistics.startTime).tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm")}
+📅 Başlangıç: ${moment(this.tradingBot.statistics.startTime).tz(this.bakuTimezone).format("DD/MM/YYYY HH:mm")}
 
 🤖 Bot performansı normal seviyelerde
         `
