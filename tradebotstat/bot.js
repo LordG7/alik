@@ -30,7 +30,7 @@ class CryptoTradingBot {
     this.bot.start((ctx) => {
       this.chatId = ctx.chat.id
       ctx.reply(
-        `🤖 Kripto Trading Bot Aktif!\n\n📊 Analiz Edilen Coin: ${this.symbol}\n⏰ Çalışma Saatleri: 09:00-23:00 (Bakü)\n📈 Maksimum Günlük İşlem: ${this.maxDailyTrades}\n🎯 Hedef Başarı Oranı: %90\n\n✅ Bot hazır ve analiz yapıyor...`,
+        `🤖 Kripto Trading Bot Aktif!\n\n📊 Analiz Edilen Coin: ${this.symbol}\n⏰ Çalışma Saatleri: 09:00-23:00 (Bakü)\n📈 Maksimum Günlük İşlem: ${this.maxDailyTrades}\n🎯 Hedef Başarı Oranı: %90\n\n🔧 KOMUTLAR:\n/status - Bot durumunu göster\n/analyze - Manuel analiz yap\n/now - Anında analiz yap\n\n✅ Bot hazır ve analiz yapıyor...`,
       )
     })
 
@@ -50,13 +50,23 @@ class CryptoTradingBot {
       await this.performAnalysis(ctx)
     })
 
+    this.bot.command("now", async (ctx) => {
+      if (!this.isOperatingHours) {
+        ctx.reply("⏰ Bot çalışma saatleri dışında (09:00-23:00 Bakü saati)")
+        return
+      }
+
+      ctx.reply("🔄 Anında analiz başlatılıyor...")
+      await this.performAnalysis(ctx)
+    })
+
     this.bot.launch()
     console.log("🤖 Telegram Bot başlatıldı...")
   }
 
   setupScheduler() {
     // Her 15 dakikada bir analiz yap
-    cron.schedule("*/1 * * * *", async () => {
+    cron.schedule("*/15 * * * *", async () => {
       if (this.isOperatingHours && this.chatId) {
         await this.performAnalysis()
       }
