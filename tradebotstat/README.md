@@ -51,17 +51,35 @@ docker-compose up -d
 Edit `.env` file:
 - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token
 - `CHAT_ID`: Your Telegram chat ID
-- `SYMBOL`: Trading pair (e.g., BTCUSDT)
+- `SYMBOLS`: Trading pairs separated by commas (e.g., INJUSDT,BTCUSDT,ETHUSDT,BNBUSDT,ADAUSDT)
 - `TIMEFRAME`: Analysis timeframe (5m, 15m, 1h)
-- `TRADE_AMOUNT`: Position size in USDT
+- `TRADE_AMOUNT_PER_PAIR`: Position size per pair in USDT
+- `MAX_CONCURRENT_POSITIONS`: Maximum number of simultaneous positions (1-5)
+
+## Supported Pairs
+
+The bot is configured to trade these popular cryptocurrency pairs:
+- **INJUSDT** - Injective Protocol
+- **BTCUSDT** - Bitcoin
+- **ETHUSDT** - Ethereum  
+- **BNBUSDT** - Binance Coin
+- **ADAUSDT** - Cardano
+
+## Multi-Pair Features
+
+- **Concurrent Trading**: Trade up to 3 pairs simultaneously
+- **Individual Risk Management**: Each pair has its own position sizing
+- **Pair Performance Tracking**: Monitor win rates and PnL per pair
+- **Smart Position Management**: Prevents overexposure to any single pair
 
 ## Bot Commands
 
 - `/start` - Initialize bot
-- `/status` - Check bot status
-- `/position` - View current position
-- `/stop` - Stop trading
-- `/start_trading` - Resume trading
+- `/status` - Check bot status and active pairs
+- `/positions` - View all active positions
+- `/pairs` - View pair performance statistics
+- `/stop` - Stop trading on all pairs
+- `/start_trading` - Resume trading on all pairs
 
 ## Technical Indicators
 

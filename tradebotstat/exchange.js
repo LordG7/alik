@@ -5,9 +5,13 @@ class ExchangeManager {
     this.exchange = new ccxt.binance({
       apiKey: process.env.BINANCE_API_KEY,
       secret: process.env.BINANCE_SECRET_KEY,
-      sandbox: false, // Set to true for testing
+      sandbox: false,
       enableRateLimit: true,
     })
+
+    // Add price cache to reduce API calls
+    this.priceCache = new Map()
+    this.cacheTimeout = 5000 // 5 seconds cache
   }
 
   async getCandles(symbol, timeframe, limit = 100) {
@@ -29,10 +33,23 @@ class ExchangeManager {
 
   async getCurrentPrice(symbol) {
     try {
+      // Check cache first
+      const cached = this.priceCache.get(symbol)
+      if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+        return cached.price
+      }
+
       const ticker = await this.exchange.fetchTicker(symbol)
+
+      // Update cache
+      this.priceCache.set(symbol, {
+        price: ticker.last,
+        timestamp: Date.now(),
+      })
+
       return ticker.last
     } catch (error) {
-      console.error("Error fetching current price:", error)
+      console.error(`Error fetching current price for ${symbol}:`, error)
       return null
     }
   }
@@ -53,6 +70,30 @@ class ExchangeManager {
     } catch (error) {
       console.error("Error creating order:", error)
       return null
+    }
+  }
+
+  // Add method to get multiple prices at once
+  async getMultiplePrices(symbols) {
+    try {
+      const tickers = await this.exchange.fetchTickers(symbols)
+      const prices = {}
+
+      for (const symbol of symbols) {
+        if (tickers[symbol]) {
+          prices[symbol] = tickers[symbol].last
+          // Update cache
+          this.priceCache.set(symbol, {
+            price: tickers[symbol].last,
+            timestamp: Date.now(),
+          })
+        }
+      }
+
+      return prices
+    } catch (error) {
+      console.error("Error fetching multiple prices:", error)
+      return {}
     }
   }
 }
