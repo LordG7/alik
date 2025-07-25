@@ -1,11 +1,12 @@
 {
   "name": "crypto-telegram-trading-bot",
-  "version": "1.0.0",
-  "description": "Cryptocurrency trading bot with technical analysis for Telegram",
-  "main": "bot.js",
+  "version": "1.1.0",
+  "description": "Cryptocurrency trading bot with technical analysis for Telegram - Enhanced with error handling",
+  "main": "bot-enhanced.js",
   "scripts": {
-    "start": "node bot.js",
-    "dev": "nodemon bot.js"
+    "start": "node bot-enhanced.js",
+    "dev": "nodemon bot-enhanced.js",
+    "test": "node test-bot.js"
   },
   "dependencies": {
     "telegraf": "^4.15.6",

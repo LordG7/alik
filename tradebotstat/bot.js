@@ -23,8 +23,53 @@ class CryptoTradingBot {
     this.isAnalyzing = false
 
     this.setupBot()
+
+    this.bot.catch((err, ctx) => {
+      console.error("Bot error:", err)
+      console.error("Update:", ctx.update)
+      // Don't crash, just log and continue
+    })
+
     this.startAnalysis()
     this.sendWelcomeMessage()
+  }
+
+  async safeEditMessage(ctx, message, options = {}) {
+    try {
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(message, options)
+      } else {
+        await ctx.reply(message, options)
+      }
+    } catch (error) {
+      if (
+        error.response &&
+        error.response.error_code === 400 &&
+        error.response.description.includes("message is not modified")
+      ) {
+        // Message content is the same, just answer the callback query
+        if (ctx.callbackQuery) {
+          await ctx.answerCbQuery("Already up to date ✅")
+        }
+      } else {
+        console.error("Error editing message:", error.message)
+        // Try to send a new message instead
+        try {
+          await ctx.reply(message, options)
+        } catch (fallbackError) {
+          console.error("Fallback message failed:", fallbackError.message)
+        }
+      }
+    }
+  }
+
+  async safeSendMessage(text, options = {}) {
+    try {
+      await this.bot.telegram.sendMessage(this.chatId, text, options)
+    } catch (error) {
+      console.error("Error sending message:", error.message)
+      // Don't crash, just log the error
+    }
   }
 
   async sendWelcomeMessage() {
@@ -556,17 +601,10 @@ ${color} **Current:** $${currentPrice.toFixed(4)}
 
     message += `⏰ **Updated:** ${new Date().toLocaleString()}`
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    } else {
-      await ctx.reply(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    }
+    await this.safeEditMessage(ctx, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   async handleStatus(ctx) {
@@ -590,17 +628,10 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
 
 ⏰ **Updated:** ${new Date().toLocaleString()}`
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    } else {
-      await ctx.reply(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    }
+    await this.safeEditMessage(ctx, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   async handlePositions(ctx) {
@@ -615,17 +646,10 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
     if (this.activePositions.size === 0) {
       const message = "📭 **No Active Positions**\n\n⏳ Waiting for trading signals..."
 
-      if (ctx.callbackQuery) {
-        await ctx.editMessageText(message, {
-          parse_mode: "Markdown",
-          ...keyboard,
-        })
-      } else {
-        await ctx.reply(message, {
-          parse_mode: "Markdown",
-          ...keyboard,
-        })
-      }
+      await this.safeEditMessage(ctx, message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
       return
     }
 
@@ -644,17 +668,10 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
 
     message += `⏰ **Updated:** ${new Date().toLocaleString()}`
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    } else {
-      await ctx.reply(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    }
+    await this.safeEditMessage(ctx, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   async handlePairs(ctx) {
@@ -677,17 +694,10 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
 
     message += `⏰ **Updated:** ${new Date().toLocaleString()}`
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    } else {
-      await ctx.reply(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    }
+    await this.safeEditMessage(ctx, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   async handleSettings(ctx) {
@@ -715,17 +725,10 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
 
 ⏰ **Updated:** ${new Date().toLocaleString()}`
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    } else {
-      await ctx.reply(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    }
+    await this.safeEditMessage(ctx, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   async handlePerformance(ctx) {
@@ -752,17 +755,10 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
 
 ⏰ **Updated:** ${new Date().toLocaleString()}`
 
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    } else {
-      await ctx.reply(message, {
-        parse_mode: "Markdown",
-        ...keyboard,
-      })
-    }
+    await this.safeEditMessage(ctx, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   async manualClosePosition(symbol, ctx) {
@@ -771,7 +767,7 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
       if (!currentPrice) {
         const message = `❌ Unable to get current price for ${symbol}`
         if (ctx.callbackQuery) {
-          await ctx.editMessageText(message)
+          await this.safeEditMessage(ctx, message)
         } else {
           await ctx.reply(message)
         }
@@ -782,14 +778,14 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
 
       const message = `✅ Position closed manually for ${symbol} at $${currentPrice.toFixed(4)}`
       if (ctx.callbackQuery) {
-        await ctx.editMessageText(message)
+        await this.safeEditMessage(ctx, message)
       } else {
         await ctx.reply(message)
       }
     } catch (error) {
       const message = `❌ Error closing position: ${error.message}`
       if (ctx.callbackQuery) {
-        await ctx.editMessageText(message)
+        await this.safeEditMessage(ctx, message)
       } else {
         await ctx.reply(message)
       }
@@ -805,7 +801,7 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
       if (!currentPrice) {
         const message = `❌ Unable to get current price for ${symbol}`
         if (ctx.callbackQuery) {
-          await ctx.editMessageText(message)
+          await this.safeEditMessage(ctx, message)
         } else {
           await ctx.reply(message)
         }
@@ -817,7 +813,7 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
         const message = `✅ Stop loss trailed to breakeven for ${symbol}`
 
         if (ctx.callbackQuery) {
-          await ctx.editMessageText(message)
+          await this.safeEditMessage(ctx, message)
         } else {
           await ctx.reply(message)
         }
@@ -830,7 +826,7 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
       } else {
         const message = `⚠️ Position not in profit yet for ${symbol}`
         if (ctx.callbackQuery) {
-          await ctx.editMessageText(message)
+          await this.safeEditMessage(ctx, message)
         } else {
           await ctx.reply(message)
         }
@@ -838,7 +834,7 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
     } catch (error) {
       const message = `❌ Error trailing stop: ${error.message}`
       if (ctx.callbackQuery) {
-        await ctx.editMessageText(message)
+        await this.safeEditMessage(ctx, message)
       } else {
         await ctx.reply(message)
       }
@@ -901,13 +897,9 @@ ${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`
   }
 
   async sendMessage(text) {
-    try {
-      await this.bot.telegram.sendMessage(this.chatId, text, {
-        parse_mode: "Markdown",
-      })
-    } catch (error) {
-      console.error("Failed to send message:", error)
-    }
+    await this.safeSendMessage(text, {
+      parse_mode: "Markdown",
+    })
   }
 }
 
@@ -917,3 +909,13 @@ const bot = new CryptoTradingBot()
 // Graceful shutdown
 process.once("SIGINT", () => bot.bot.stop("SIGINT"))
 process.once("SIGTERM", () => bot.bot.stop("SIGTERM"))
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error)
+  // Don't exit, just log
+})
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason)
+  // Don't exit, just log
+})
