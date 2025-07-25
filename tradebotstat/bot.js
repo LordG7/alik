@@ -1,4 +1,4 @@
-const { Telegraf } = require("telegraf")
+const { Telegraf, Markup } = require("telegraf")
 const cron = require("node-cron")
 const TechnicalAnalysis = require("./indicators")
 const ExchangeManager = require("./exchange")
@@ -16,138 +16,154 @@ class CryptoTradingBot {
     this.chatId = process.env.CHAT_ID
 
     // Multiple positions management
-    this.activePositions = new Map() // symbol -> position data
+    this.activePositions = new Map()
     this.maxConcurrentPositions = Number.parseInt(process.env.MAX_CONCURRENT_POSITIONS) || 3
     this.symbols = process.env.SYMBOLS.split(",").map((s) => s.trim())
     this.tradeAmountPerPair = Number.parseFloat(process.env.TRADE_AMOUNT_PER_PAIR) || 50
+    this.isAnalyzing = false
 
     this.setupBot()
     this.startAnalysis()
-    this.sendMessage(
-      `🚀 Multi-Coin Trading Bot Started!\n\n📊 Monitoring: ${this.symbols.join(", ")}\n💰 Amount per pair: $${this.tradeAmountPerPair}\n📈 Max positions: ${this.maxConcurrentPositions}`,
-    )
+    this.sendWelcomeMessage()
+  }
+
+  async sendWelcomeMessage() {
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("📊 Status", "status"), Markup.button.callback("💼 Positions", "positions")],
+      [Markup.button.callback("📈 Analyze Now", "analyze_now"), Markup.button.callback("📋 Pairs", "pairs")],
+      [Markup.button.callback("⚙️ Settings", "settings"), Markup.button.callback("📊 Performance", "performance")],
+    ])
+
+    const message = `🚀 **Multi-Coin Trading Bot Started!**
+
+📊 **Monitoring Pairs:**
+${this.symbols.map((s) => `• ${s}`).join("\n")}
+
+💰 **Configuration:**
+• Amount per pair: $${this.tradeAmountPerPair}
+• Max positions: ${this.maxConcurrentPositions}
+• Timeframe: ${process.env.TIMEFRAME}
+
+🎯 **Signal Requirements:**
+• Minimum 3/5 indicators agreement
+• 1:1 Risk-Reward ratio
+• Real-time monitoring every 30 seconds
+
+✅ **Bot is now actively scanning for signals...**`
+
+    await this.bot.telegram.sendMessage(this.chatId, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   setupBot() {
-    this.bot.start((ctx) => {
-      ctx.reply(
-        `🚀 Multi-Coin Crypto Trading Bot Started!\n\n📊 Monitoring Pairs:\n${this.symbols.map((s) => `• ${s}`).join("\n")}\n\nCommands:\n/status - Check bot status\n/positions - All positions\n/pairs - Pair performance\n/stop - Stop trading\n/start_trading - Start trading`,
-      )
+    // Command handlers
+    this.bot.start((ctx) => this.sendWelcomeMessage())
+
+    this.bot.command("now", async (ctx) => {
+      await this.handleAnalyzeNow(ctx)
     })
 
-    this.bot.command("status", (ctx) => {
-      const activeCount = this.activePositions.size
-      const availableSlots = this.maxConcurrentPositions - activeCount
-      ctx.reply(
-        `📊 Bot Status:\n\n` +
-          `🔄 Active Positions: ${activeCount}/${this.maxConcurrentPositions}\n` +
-          `💹 Available Slots: ${availableSlots}\n` +
-          `📈 Monitoring: ${this.symbols.length} pairs\n` +
-          `⏰ Timeframe: ${process.env.TIMEFRAME}\n\n` +
-          `${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`).join("\n")}`,
-      )
+    this.bot.command("status", async (ctx) => {
+      await this.handleStatus(ctx)
     })
 
-    this.bot.command("positions", (ctx) => {
-      if (this.activePositions.size === 0) {
-        ctx.reply("📭 No active positions")
-        return
-      }
-
-      let message = "📊 Active Positions:\n\n"
-      for (const [symbol, pos] of this.activePositions) {
-        message += `💎 ${symbol}\n`
-        message += `📈 ${pos.side} | Entry: $${pos.entryPrice.toFixed(4)}\n`
-        message += `🎯 TP: $${pos.takeProfit.toFixed(4)} | 🛑 SL: $${pos.stopLoss.toFixed(4)}\n`
-        message += `📊 PnL: ${pos.pnl.toFixed(2)}% | ⏰ ${this.formatDuration(Date.now() - pos.timestamp)}\n\n`
-      }
-      ctx.reply(message)
+    this.bot.command("positions", async (ctx) => {
+      await this.handlePositions(ctx)
     })
 
-    this.bot.command("pairs", (ctx) => {
-      const pairStats = this.pairsManager.getAllPairStats()
-      let message = "📈 Pair Performance (24h):\n\n"
-
-      for (const symbol of this.symbols) {
-        const stats = pairStats[symbol] || { trades: 0, winRate: 0, pnl: 0 }
-        const status = this.activePositions.has(symbol) ? "🟢 ACTIVE" : "⚪ WAITING"
-        message += `💎 ${symbol} ${status}\n`
-        message += `📊 Trades: ${stats.trades} | Win Rate: ${stats.winRate.toFixed(1)}%\n`
-        message += `💰 PnL: ${stats.pnl.toFixed(2)}%\n\n`
-      }
-      ctx.reply(message)
-    })
-
-    this.bot.command("stop", (ctx) => {
-      this.activePositions.clear()
-      ctx.reply("🛑 All trading stopped")
-    })
-
-    this.bot.command("start_trading", (ctx) => {
-      ctx.reply("✅ Trading resumed for all pairs")
-    })
-
-    this.bot.command("close", (ctx) => {
+    this.bot.command("close", async (ctx) => {
       const args = ctx.message.text.split(" ")
       if (args.length < 2) {
-        ctx.reply("Usage: /close SYMBOL\nExample: /close BTCUSDT")
+        const keyboard = Markup.inlineKeyboard(
+          Array.from(this.activePositions.keys()).map((symbol) => [
+            Markup.button.callback(`Close ${symbol}`, `close_${symbol}`),
+          ]),
+        )
+        ctx.reply("Select position to close:", keyboard)
         return
       }
-
       const symbol = args[1].toUpperCase()
-      if (this.activePositions.has(symbol)) {
-        this.manualClosePosition(symbol, ctx)
-      } else {
-        ctx.reply(`No active position found for ${symbol}`)
-      }
+      await this.manualClosePosition(symbol, ctx)
     })
 
-    this.bot.command("trail", (ctx) => {
-      const args = ctx.message.text.split(" ")
-      if (args.length < 2) {
-        ctx.reply("Usage: /trail SYMBOL\nExample: /trail BTCUSDT")
-        return
-      }
-
-      const symbol = args[1].toUpperCase()
-      if (this.activePositions.has(symbol)) {
-        this.trailStopLoss(symbol, ctx)
-      } else {
-        ctx.reply(`No active position found for ${symbol}`)
-      }
+    // Callback query handlers
+    this.bot.action("status", async (ctx) => {
+      await this.handleStatus(ctx)
+      await ctx.answerCbQuery()
     })
 
-    this.bot.command("alerts", (ctx) => {
-      ctx.reply(`🔔 Alert Settings:
-  
-📊 Price Updates: Every 0.5% move
-🛑 SL Warnings: When 20% away
-🎯 TP Alerts: When 20% away
-📈 Partial TP: At 50% and 75% targets
+    this.bot.action("positions", async (ctx) => {
+      await this.handlePositions(ctx)
+      await ctx.answerCbQuery()
+    })
 
-Use /close SYMBOL to manually close
-Use /trail SYMBOL to trail stop loss`)
+    this.bot.action("analyze_now", async (ctx) => {
+      await this.handleAnalyzeNow(ctx)
+      await ctx.answerCbQuery()
+    })
+
+    this.bot.action("pairs", async (ctx) => {
+      await this.handlePairs(ctx)
+      await ctx.answerCbQuery()
+    })
+
+    this.bot.action("settings", async (ctx) => {
+      await this.handleSettings(ctx)
+      await ctx.answerCbQuery()
+    })
+
+    this.bot.action("performance", async (ctx) => {
+      await this.handlePerformance(ctx)
+      await ctx.answerCbQuery()
+    })
+
+    // Close position callbacks
+    this.bot.action(/close_(.+)/, async (ctx) => {
+      const symbol = ctx.match[1]
+      await this.manualClosePosition(symbol, ctx)
+      await ctx.answerCbQuery()
+    })
+
+    // Trail stop callbacks
+    this.bot.action(/trail_(.+)/, async (ctx) => {
+      const symbol = ctx.match[1]
+      await this.trailStopLoss(symbol, ctx)
+      await ctx.answerCbQuery()
     })
 
     this.bot.launch()
+    console.log("🚀 Bot started successfully!")
   }
 
   async startAnalysis() {
-    // Run analysis every 30 seconds for better responsiveness
+    console.log("📊 Starting market analysis...")
+
+    // Run analysis every 30 seconds
     cron.schedule("*/30 * * * * *", async () => {
+      if (this.isAnalyzing) return
+
       try {
-        // Check existing positions first
+        this.isAnalyzing = true
         await this.checkAllPositions()
 
-        // Look for new opportunities if we have available slots
         if (this.activePositions.size < this.maxConcurrentPositions) {
           await this.analyzeAllMarkets()
         }
       } catch (error) {
         console.error("Analysis error:", error)
-        this.sendMessage(`❌ Analysis Error: ${error.message}`)
+        await this.sendMessage(`❌ Analysis Error: ${error.message}`)
+      } finally {
+        this.isAnalyzing = false
       }
     })
+
+    // Send a test signal after 10 seconds to verify it's working
+    setTimeout(async () => {
+      await this.sendMessage("✅ Signal system initialized and ready!")
+      console.log("📡 Signal system ready")
+    }, 10000)
   }
 
   async analyzeAllMarkets() {
@@ -169,18 +185,27 @@ Use /trail SYMBOL to trail stop loss`)
 
     // Get market data
     const candles = await this.exchange.getCandles(symbol, timeframe, 100)
-    if (!candles || candles.length < 50) return
+    if (!candles || candles.length < 50) {
+      console.log(`❌ Insufficient data for ${symbol}`)
+      return
+    }
+
+    console.log(`📊 Analyzing ${symbol}...`)
 
     // Calculate all indicators
     const signals = await this.ta.analyzeAll(candles)
 
-    // Check if we have a strong signal (4 out of 5 indicators agree)
+    // Count signals - LOWERED THRESHOLD to 3/5 for more signals
     const bullishCount = signals.filter((s) => s.signal === "BUY").length
     const bearishCount = signals.filter((s) => s.signal === "SELL").length
 
-    if (bullishCount >= 4) {
+    console.log(`${symbol}: Bulls=${bullishCount}, Bears=${bearishCount}`)
+
+    if (bullishCount >= 3) {
+      console.log(`🟢 LONG signal detected for ${symbol}`)
       await this.openPosition("BUY", symbol, candles[candles.length - 1], signals, bullishCount)
-    } else if (bearishCount >= 4) {
+    } else if (bearishCount >= 3) {
+      console.log(`🔴 SHORT signal detected for ${symbol}`)
       await this.openPosition("SELL", symbol, candles[candles.length - 1], signals, bearishCount)
     }
   }
@@ -193,12 +218,12 @@ Use /trail SYMBOL to trail stop loss`)
 
     // Calculate 1:1 Risk-Reward using ATR
     const atr = await this.ta.calculateATR([currentCandle], 14)
-    const riskAmount = atr * 2 // 2 ATR for SL distance
+    const riskAmount = atr * 1.5 // Reduced from 2 to 1.5 for tighter stops
 
     const stopLoss = side === "BUY" ? currentPrice - riskAmount : currentPrice + riskAmount
     const takeProfit = side === "BUY" ? currentPrice + riskAmount : currentPrice - riskAmount
 
-    // Calculate additional levels
+    // Calculate partial levels
     const partialTP1 = side === "BUY" ? currentPrice + riskAmount * 0.5 : currentPrice - riskAmount * 0.5
     const partialTP2 = side === "BUY" ? currentPrice + riskAmount * 0.75 : currentPrice - riskAmount * 0.75
 
@@ -218,103 +243,83 @@ Use /trail SYMBOL to trail stop loss`)
       lastAlertPrice: currentPrice,
       slWarningsSent: 0,
       tpWarningsSent: 0,
+      tp1Hit: false,
+      tp2Hit: false,
     }
 
     this.activePositions.set(symbol, position)
 
-    // Get market context
-    const marketContext = await this.getMarketContext(symbol, currentCandle)
+    console.log(`✅ Position opened: ${side} ${symbol} at ${currentPrice}`)
 
-    // Send comprehensive signal to Telegram
-    await this.sendDetailedSignal(position, signals, signalStrength, marketContext)
+    // Send signal to Telegram
+    await this.sendTradingSignal(position, signals, signalStrength)
 
     this.pairsManager.recordTrade(symbol, side, currentPrice)
   }
 
-  async sendDetailedSignal(position, signals, signalStrength, marketContext) {
+  async sendTradingSignal(position, signals, signalStrength) {
     const { symbol, side, entryPrice, stopLoss, takeProfit, partialTP1, partialTP2, amount } = position
 
     const direction = side === "BUY" ? "📈 LONG" : "📉 SHORT"
     const emoji = side === "BUY" ? "🟢" : "🔴"
+    const arrow = side === "BUY" ? "⬆️" : "⬇️"
 
     // Calculate risk metrics
     const riskPercent = Math.abs((entryPrice - stopLoss) / entryPrice) * 100
     const rewardPercent = Math.abs((takeProfit - entryPrice) / entryPrice) * 100
 
     const signalDetails = signals
-      .map(
-        (s) => `${this.getIndicatorEmoji(s.indicator)} ${s.indicator}: ${s.signal} ${this.getSignalStrength(s.signal)}`,
-      )
+      .map((s) => `${this.getIndicatorEmoji(s.indicator)} ${s.indicator}: ${s.signal}`)
       .join("\n")
 
-    const message = `
-🚨 ${emoji} NEW TRADING SIGNAL ${emoji}
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback(`Close ${symbol}`, `close_${symbol}`),
+        Markup.button.callback(`Trail SL`, `trail_${symbol}`),
+      ],
+      [
+        Markup.button.callback("📊 All Positions", "positions"),
+        Markup.button.callback("📈 Analyze Now", "analyze_now"),
+      ],
+    ])
 
-💎 PAIR: ${symbol}
-📊 DIRECTION: ${direction}
-⚡ SIGNAL STRENGTH: ${signalStrength}/5 ${this.getStrengthEmoji(signalStrength)}
+    const message = `🚨 ${emoji} **NEW SIGNAL ALERT** ${emoji}
 
-💰 ENTRY ZONE: $${entryPrice.toFixed(4)}
-🎯 TAKE PROFIT: $${takeProfit.toFixed(4)}
-🛑 STOP LOSS: $${stopLoss.toFixed(4)}
+${arrow} **${symbol} ${direction}**
+⚡ **Signal Strength: ${signalStrength}/5** ${this.getStrengthEmoji(signalStrength)}
 
-📈 PARTIAL TARGETS:
+💰 **ENTRY:** $${entryPrice.toFixed(4)}
+🎯 **TAKE PROFIT:** $${takeProfit.toFixed(4)}
+🛑 **STOP LOSS:** $${stopLoss.toFixed(4)}
+
+📊 **PARTIAL TARGETS:**
 🎯 TP1 (50%): $${partialTP1.toFixed(4)}
 🎯 TP2 (75%): $${partialTP2.toFixed(4)}
-🎯 TP3 (100%): $${takeProfit.toFixed(4)}
 
-⚖️ RISK MANAGEMENT:
-💵 Position Size: $${amount}
+⚖️ **RISK MANAGEMENT:**
+💵 Position: $${amount}
 📊 Risk: ${riskPercent.toFixed(2)}%
 📈 Reward: ${rewardPercent.toFixed(2)}%
-⚖️ R:R Ratio: 1:${(rewardPercent / riskPercent).toFixed(1)}
+⚖️ R:R: 1:${(rewardPercent / riskPercent).toFixed(1)}
 
-🔍 TECHNICAL ANALYSIS:
+🔍 **TECHNICAL ANALYSIS:**
 ${signalDetails}
 
-📊 MARKET CONTEXT:
-${marketContext}
+⏰ **Time:** ${new Date().toLocaleString()}
+📊 **Active:** ${this.activePositions.size}/${this.maxConcurrentPositions}
 
-⏰ Time: ${new Date().toLocaleString()}
-📊 Active: ${this.activePositions.size}/${this.maxConcurrentPositions}
+${this.getTradingAdvice(side, signalStrength)}`
 
-${this.getTradingAdvice(side, signalStrength)}
-`
-
-    await this.sendMessage(message)
-  }
-
-  async getMarketContext(symbol, currentCandle) {
-    try {
-      // Get additional timeframe data for context
-      const h1Candles = await this.exchange.getCandles(symbol, "1h", 24)
-      const d1Candles = await this.exchange.getCandles(symbol, "1d", 7)
-
-      if (!h1Candles || !d1Candles) return "Market data unavailable"
-
-      const currentPrice = currentCandle.close
-      const h1Close = h1Candles[h1Candles.length - 1].close
-      const d1Close = d1Candles[d1Candles.length - 1].close
-
-      // Calculate price changes
-      const h1Change = ((currentPrice - h1Close) / h1Close) * 100
-      const d1Change = ((currentPrice - d1Close) / d1Close) * 100
-
-      // Determine trend
-      const h1Trend = h1Change > 0.5 ? "📈 Bullish" : h1Change < -0.5 ? "📉 Bearish" : "➡️ Sideways"
-      const d1Trend = d1Change > 2 ? "📈 Strong Bull" : d1Change < -2 ? "📉 Strong Bear" : "➡️ Neutral"
-
-      return `🕐 1H Trend: ${h1Trend} (${h1Change.toFixed(2)}%)
-  📅 Daily Trend: ${d1Trend} (${d1Change.toFixed(2)}%)
-  📊 Volume: ${currentCandle.volume > 1000000 ? "🔥 High" : "📊 Normal"}`
-    } catch (error) {
-      return "📊 Analyzing market conditions..."
-    }
+    await this.bot.telegram.sendMessage(this.chatId, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   async checkAllPositions() {
+    if (this.activePositions.size === 0) return
+
     const positionsToClose = []
-    const alertsToSend = []
 
     for (const [symbol, position] of this.activePositions) {
       try {
@@ -334,7 +339,7 @@ ${this.getTradingAdvice(side, signalStrength)}
 
         position.pnl = pnlPercent
 
-        // Check for alerts and position management
+        // Check for alerts
         await this.checkPositionAlerts(symbol, position, currentPrice)
 
         // Check if SL or TP hit
@@ -347,10 +352,10 @@ ${this.getTradingAdvice(side, signalStrength)}
             positionsToClose.push({ symbol, reason: "TAKE_PROFIT", exitPrice: currentPrice })
           } else if (currentPrice >= partialTP1 && !position.tp1Hit) {
             position.tp1Hit = true
-            alertsToSend.push({ symbol, type: "PARTIAL_TP", level: "TP1", price: currentPrice })
+            await this.sendPartialTPAlert(symbol, "TP1", currentPrice)
           } else if (currentPrice >= partialTP2 && !position.tp2Hit) {
             position.tp2Hit = true
-            alertsToSend.push({ symbol, type: "PARTIAL_TP", level: "TP2", price: currentPrice })
+            await this.sendPartialTPAlert(symbol, "TP2", currentPrice)
           }
         } else {
           if (currentPrice >= stopLoss) {
@@ -359,10 +364,10 @@ ${this.getTradingAdvice(side, signalStrength)}
             positionsToClose.push({ symbol, reason: "TAKE_PROFIT", exitPrice: currentPrice })
           } else if (currentPrice <= partialTP1 && !position.tp1Hit) {
             position.tp1Hit = true
-            alertsToSend.push({ symbol, type: "PARTIAL_TP", level: "TP1", price: currentPrice })
+            await this.sendPartialTPAlert(symbol, "TP1", currentPrice)
           } else if (currentPrice <= partialTP2 && !position.tp2Hit) {
             position.tp2Hit = true
-            alertsToSend.push({ symbol, type: "PARTIAL_TP", level: "TP2", price: currentPrice })
+            await this.sendPartialTPAlert(symbol, "TP2", currentPrice)
           }
         }
       } catch (error) {
@@ -370,163 +375,37 @@ ${this.getTradingAdvice(side, signalStrength)}
       }
     }
 
-    // Send alerts
-    for (const alert of alertsToSend) {
-      await this.sendPositionAlert(alert)
-    }
-
-    // Close positions that hit SL or TP
+    // Close positions
     for (const closeData of positionsToClose) {
       await this.closePosition(closeData.symbol, closeData.reason, closeData.exitPrice)
     }
   }
 
-  async checkPositionAlerts(symbol, position, currentPrice) {
-    const { side, entryPrice, stopLoss, takeProfit, lastAlertPrice } = position
+  async sendPartialTPAlert(symbol, level, price) {
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback(`Close ${symbol}`, `close_${symbol}`),
+        Markup.button.callback(`Trail SL`, `trail_${symbol}`),
+      ],
+    ])
 
-    // Calculate distances to SL and TP
-    const slDistance = Math.abs(currentPrice - stopLoss) / Math.abs(entryPrice - stopLoss)
-    const tpDistance = Math.abs(currentPrice - takeProfit) / Math.abs(entryPrice - takeProfit)
+    const message = `🎉 **${level} HIT: ${symbol}**
 
-    // Price movement alerts (every 0.5% move)
-    const priceMovement = Math.abs((currentPrice - lastAlertPrice) / lastAlertPrice) * 100
-    if (priceMovement >= 0.5) {
-      position.lastAlertPrice = currentPrice
-      await this.sendPriceUpdateAlert(symbol, position, currentPrice)
-    }
+✅ **Partial Take Profit achieved!**
+💰 **Price:** $${price.toFixed(4)}
+🎯 **Level:** ${level} (${level === "TP1" ? "50%" : "75%"} target)
 
-    // Stop Loss proximity warnings
-    if (slDistance < 0.2 && position.slWarningsSent < 2) {
-      position.slWarningsSent++
-      await this.sendStopLossWarning(symbol, position, currentPrice)
-    }
-
-    // Take Profit proximity alerts
-    if (tpDistance < 0.2 && position.tpWarningsSent < 1) {
-      position.tpWarningsSent++
-      await this.sendTakeProfitAlert(symbol, position, currentPrice)
-    }
-  }
-
-  async sendPriceUpdateAlert(symbol, position, currentPrice) {
-    const pnlPercent = position.pnl
-    const pnlAmount = (position.amount * pnlPercent) / 100
-    const emoji = pnlPercent > 0 ? "📈" : "📉"
-    const color = pnlPercent > 0 ? "🟢" : "🔴"
-
-    const message = `
-${emoji} PRICE UPDATE: ${symbol}
-
-${color} Current: $${currentPrice.toFixed(4)}
-📊 Entry: $${position.entryPrice.toFixed(4)}
-📈 PnL: ${pnlPercent.toFixed(2)}% (${pnlAmount > 0 ? "+" : ""}$${pnlAmount.toFixed(2)})
-
-🎯 Distance to TP: ${Math.abs(currentPrice - position.takeProfit).toFixed(4)}
-🛑 Distance to SL: ${Math.abs(currentPrice - position.stopLoss).toFixed(4)}
-⏰ Duration: ${this.formatDuration(Date.now() - position.timestamp)}
-`
-
-    await this.sendMessage(message)
-  }
-
-  async sendStopLossWarning(symbol, position, currentPrice) {
-    const message = `
-⚠️ STOP LOSS WARNING: ${symbol}
-
-🚨 Price approaching Stop Loss!
-📊 Current: $${currentPrice.toFixed(4)}
-🛑 Stop Loss: $${position.stopLoss.toFixed(4)}
-📉 Distance: $${Math.abs(currentPrice - position.stopLoss).toFixed(4)}
-
-💡 CONSIDER:
-• Manual exit if trend weakening
-• Trailing stop if in profit
-• Hold if strong support nearby
-
-⏰ Time: ${new Date().toLocaleTimeString()}
-`
-
-    await this.sendMessage(message)
-  }
-
-  async sendTakeProfitAlert(symbol, position, currentPrice) {
-    const message = `
-🎯 TAKE PROFIT ZONE: ${symbol}
-
-✅ Approaching Take Profit target!
-📊 Current: $${currentPrice.toFixed(4)}
-🎯 Take Profit: $${position.takeProfit.toFixed(4)}
-📈 Distance: $${Math.abs(position.takeProfit - currentPrice).toFixed(4)}
-
-💡 STRATEGY OPTIONS:
-• Take partial profits (50-75%)
-• Trail stop to breakeven
-• Hold for full target
-
-⏰ Time: ${new Date().toLocaleTimeString()}
-`
-
-    await this.sendMessage(message)
-  }
-
-  async sendPositionAlert(alert) {
-    const { symbol, type, level, price } = alert
-
-    if (type === "PARTIAL_TP") {
-      const message = `
-🎉 ${level} HIT: ${symbol}
-
-✅ Partial Take Profit achieved!
-💰 Price: $${price.toFixed(4)}
-🎯 Level: ${level} (${level === "TP1" ? "50%" : "75%"} target)
-
-💡 NEXT STEPS:
+💡 **NEXT STEPS:**
 • Consider taking ${level === "TP1" ? "25-50%" : "50-75%"} profits
 • Move stop loss to breakeven
 • Let remaining position run
 
-⏰ Time: ${new Date().toLocaleTimeString()}
-`
+⏰ **Time:** ${new Date().toLocaleTimeString()}`
 
-      await this.sendMessage(message)
-    }
-  }
-
-  getTradingAdvice(side, signalStrength) {
-    const advice = []
-
-    if (signalStrength >= 4) {
-      advice.push("🔥 HIGH CONFIDENCE SIGNAL")
-      advice.push("💡 Consider full position size")
-    } else {
-      advice.push("⚠️ MODERATE SIGNAL")
-      advice.push("💡 Consider reduced position size")
-    }
-
-    if (side === "BUY") {
-      advice.push("📈 LONG STRATEGY:")
-      advice.push("• Enter on any dip to entry zone")
-      advice.push("• Watch for volume confirmation")
-      advice.push("• Trail stop after TP1")
-    } else {
-      advice.push("📉 SHORT STRATEGY:")
-      advice.push("• Enter on any bounce to entry zone")
-      advice.push("• Watch for breakdown confirmation")
-      advice.push("• Trail stop after TP1")
-    }
-
-    return advice.join("\n")
-  }
-
-  getSignalStrength(signal) {
-    return signal === "BUY" ? "🟢" : signal === "SELL" ? "🔴" : "⚪"
-  }
-
-  getStrengthEmoji(strength) {
-    if (strength >= 5) return "🔥🔥🔥"
-    if (strength >= 4) return "🔥🔥"
-    if (strength >= 3) return "🔥"
-    return "⚡"
+    await this.bot.telegram.sendMessage(this.chatId, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
   }
 
   async closePosition(symbol, reason, exitPrice) {
@@ -538,49 +417,351 @@ ${color} Current: $${currentPrice.toFixed(4)}
     const duration = this.formatDuration(Date.now() - pos.timestamp)
 
     const isProfit = pnlPercent > 0
-    const emoji = reason === "TAKE_PROFIT" ? "✅" : "❌"
+    const emoji = reason === "TAKE_PROFIT" ? "✅" : reason === "STOP_LOSS" ? "❌" : "🔄"
     const color = isProfit ? "🟢" : "🔴"
 
-    // Calculate trade statistics
-    const riskReward = Math.abs(pnlPercent / (((pos.entryPrice - pos.stopLoss) / pos.entryPrice) * 100))
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback("📊 All Positions", "positions"),
+        Markup.button.callback("📈 Analyze Now", "analyze_now"),
+      ],
+      [Markup.button.callback("📋 Performance", "performance")],
+    ])
 
-    const message = `
-${emoji} POSITION CLOSED: ${symbol}
+    const message = `${emoji} **POSITION CLOSED: ${symbol}**
 
-${color} RESULT: ${reason.replace("_", " ")}
-📊 Direction: ${pos.side}
-💰 Entry: $${pos.entryPrice.toFixed(4)}
-🚪 Exit: $${exitPrice.toFixed(4)}
-📈 PnL: ${pnlPercent.toFixed(2)}% (${pnlAmount > 0 ? "+" : ""}$${pnlAmount.toFixed(2)})
-⏰ Duration: ${duration}
-⚖️ R:R Achieved: 1:${riskReward.toFixed(2)}
+${color} **RESULT:** ${reason.replace("_", " ")}
+📊 **Direction:** ${pos.side}
+💰 **Entry:** $${pos.entryPrice.toFixed(4)}
+🚪 **Exit:** $${exitPrice.toFixed(4)}
+📈 **PnL:** ${pnlPercent.toFixed(2)}% (${pnlAmount > 0 ? "+" : ""}$${pnlAmount.toFixed(2)})
+⏰ **Duration:** ${duration}
 
-📊 TRADE SUMMARY:
-• Entry Quality: ${this.getEntryQuality(pos.signals)}
-• Max Favorable: ${this.calculateMaxFavorable(pos)}%
-• Max Adverse: ${this.calculateMaxAdverse(pos)}%
+📊 **PORTFOLIO STATUS:**
+• **Remaining Positions:** ${this.activePositions.size - 1}/${this.maxConcurrentPositions}
+• **Available Slots:** ${this.maxConcurrentPositions - this.activePositions.size + 1}
 
-📈 PERFORMANCE:
-${this.getTradePerformanceEmoji(pnlPercent)} ${this.getPerformanceText(pnlPercent)}
+${this.getPostTradeAdvice(reason, pnlPercent)}`
 
-📊 Portfolio Status:
-• Remaining Positions: ${this.activePositions.size - 1}/${this.maxConcurrentPositions}
-• Available Slots: ${this.maxConcurrentPositions - this.activePositions.size + 1}
+    await this.bot.telegram.sendMessage(this.chatId, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
 
-${this.getPostTradeAdvice(reason, pnlPercent)}
-`
+    console.log(`📊 Position closed: ${symbol} ${reason} PnL: ${pnlPercent.toFixed(2)}%`)
 
-    await this.sendMessage(message)
-
-    // Update pair statistics
+    // Update statistics
     this.pairsManager.recordClose(symbol, reason === "TAKE_PROFIT", pnlPercent)
 
     // Remove position
     this.activePositions.delete(symbol)
+  }
 
-    // Send daily summary if it's the last position of the day
+  async checkPositionAlerts(symbol, position, currentPrice) {
+    const { side, entryPrice, stopLoss, takeProfit, lastAlertPrice } = position
+
+    // Price movement alerts (every 1% move)
+    const priceMovement = Math.abs((currentPrice - lastAlertPrice) / lastAlertPrice) * 100
+    if (priceMovement >= 1.0) {
+      position.lastAlertPrice = currentPrice
+      await this.sendPriceUpdateAlert(symbol, position, currentPrice)
+    }
+
+    // Stop Loss proximity warnings
+    const slDistance = Math.abs(currentPrice - stopLoss) / Math.abs(entryPrice - stopLoss)
+    if (slDistance < 0.3 && position.slWarningsSent < 1) {
+      position.slWarningsSent++
+      await this.sendStopLossWarning(symbol, position, currentPrice)
+    }
+  }
+
+  async sendPriceUpdateAlert(symbol, position, currentPrice) {
+    const pnlPercent = position.pnl
+    const pnlAmount = (position.amount * pnlPercent) / 100
+    const emoji = pnlPercent > 0 ? "📈" : "📉"
+    const color = pnlPercent > 0 ? "🟢" : "🔴"
+
+    const message = `${emoji} **PRICE UPDATE: ${symbol}**
+
+${color} **Current:** $${currentPrice.toFixed(4)}
+📊 **Entry:** $${position.entryPrice.toFixed(4)}
+📈 **PnL:** ${pnlPercent.toFixed(2)}% (${pnlAmount > 0 ? "+" : ""}$${pnlAmount.toFixed(2)})
+
+🎯 **Distance to TP:** $${Math.abs(currentPrice - position.takeProfit).toFixed(4)}
+🛑 **Distance to SL:** $${Math.abs(currentPrice - position.stopLoss).toFixed(4)}
+⏰ **Duration:** ${this.formatDuration(Date.now() - position.timestamp)}`
+
+    await this.sendMessage(message)
+  }
+
+  async sendStopLossWarning(symbol, position, currentPrice) {
+    const keyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback(`Close ${symbol}`, `close_${symbol}`),
+        Markup.button.callback(`Trail SL`, `trail_${symbol}`),
+      ],
+    ])
+
+    const message = `⚠️ **STOP LOSS WARNING: ${symbol}**
+
+🚨 **Price approaching Stop Loss!**
+📊 **Current:** $${currentPrice.toFixed(4)}
+🛑 **Stop Loss:** $${position.stopLoss.toFixed(4)}
+📉 **Distance:** $${Math.abs(currentPrice - position.stopLoss).toFixed(4)}
+
+💡 **CONSIDER:**
+• Manual exit if trend weakening
+• Trailing stop if in profit
+• Hold if strong support nearby`
+
+    await this.bot.telegram.sendMessage(this.chatId, message, {
+      parse_mode: "Markdown",
+      ...keyboard,
+    })
+  }
+
+  // Handler methods
+  async handleAnalyzeNow(ctx) {
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("🔄 Refresh", "analyze_now"), Markup.button.callback("📊 Status", "status")],
+    ])
+
+    let message = "📊 **REAL-TIME MARKET ANALYSIS**\n\n"
+
+    for (const symbol of this.symbols) {
+      try {
+        const candles = await this.exchange.getCandles(symbol, process.env.TIMEFRAME, 50)
+        if (!candles || candles.length < 20) continue
+
+        const currentPrice = candles[candles.length - 1].close
+        const signals = await this.ta.analyzeAll(candles)
+
+        const bullishCount = signals.filter((s) => s.signal === "BUY").length
+        const bearishCount = signals.filter((s) => s.signal === "SELL").length
+
+        let status = "⚪ NEUTRAL"
+        if (bullishCount >= 3) status = "🟢 BULLISH"
+        else if (bearishCount >= 3) status = "🔴 BEARISH"
+
+        const positionStatus = this.activePositions.has(symbol) ? "📈 ACTIVE" : "⏳ WAITING"
+
+        message += `💎 **${symbol}** ${positionStatus}\n`
+        message += `💰 Price: $${currentPrice.toFixed(4)}\n`
+        message += `📊 Signal: ${status} (${Math.max(bullishCount, bearishCount)}/5)\n`
+        message += `🔍 Bulls: ${bullishCount} | Bears: ${bearishCount}\n\n`
+      } catch (error) {
+        message += `💎 **${symbol}**: ❌ Analysis Error\n\n`
+      }
+    }
+
+    message += `⏰ **Updated:** ${new Date().toLocaleString()}`
+
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    } else {
+      await ctx.reply(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    }
+  }
+
+  async handleStatus(ctx) {
+    const activeCount = this.activePositions.size
+    const availableSlots = this.maxConcurrentPositions - activeCount
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("🔄 Refresh", "status"), Markup.button.callback("💼 Positions", "positions")],
+      [Markup.button.callback("📈 Analyze Now", "analyze_now")],
+    ])
+
+    const message = `📊 **BOT STATUS**
+
+🔄 **Active Positions:** ${activeCount}/${this.maxConcurrentPositions}
+💹 **Available Slots:** ${availableSlots}
+📈 **Monitoring:** ${this.symbols.length} pairs
+⏰ **Timeframe:** ${process.env.TIMEFRAME}
+
+📊 **PAIR STATUS:**
+${this.symbols.map((s) => `${this.activePositions.has(s) ? "🟢" : "⚪"} ${s}`).join("\n")}
+
+⏰ **Updated:** ${new Date().toLocaleString()}`
+
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    } else {
+      await ctx.reply(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    }
+  }
+
+  async handlePositions(ctx) {
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("🔄 Refresh", "positions"), Markup.button.callback("📊 Status", "status")],
+      ...Array.from(this.activePositions.keys()).map((symbol) => [
+        Markup.button.callback(`Close ${symbol}`, `close_${symbol}`),
+        Markup.button.callback(`Trail ${symbol}`, `trail_${symbol}`),
+      ]),
+    ])
+
     if (this.activePositions.size === 0) {
-      setTimeout(() => this.sendDailySummary(), 5000)
+      const message = "📭 **No Active Positions**\n\n⏳ Waiting for trading signals..."
+
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(message, {
+          parse_mode: "Markdown",
+          ...keyboard,
+        })
+      } else {
+        await ctx.reply(message, {
+          parse_mode: "Markdown",
+          ...keyboard,
+        })
+      }
+      return
+    }
+
+    let message = "💼 **ACTIVE POSITIONS**\n\n"
+
+    for (const [symbol, pos] of this.activePositions) {
+      const pnlColor = pos.pnl > 0 ? "🟢" : "🔴"
+      const pnlAmount = (pos.amount * pos.pnl) / 100
+
+      message += `💎 **${symbol}** (${pos.side})\n`
+      message += `💰 Entry: $${pos.entryPrice.toFixed(4)}\n`
+      message += `🎯 TP: $${pos.takeProfit.toFixed(4)} | 🛑 SL: $${pos.stopLoss.toFixed(4)}\n`
+      message += `${pnlColor} PnL: ${pos.pnl.toFixed(2)}% ($${pnlAmount.toFixed(2)})\n`
+      message += `⏰ Duration: ${this.formatDuration(Date.now() - pos.timestamp)}\n\n`
+    }
+
+    message += `⏰ **Updated:** ${new Date().toLocaleString()}`
+
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    } else {
+      await ctx.reply(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    }
+  }
+
+  async handlePairs(ctx) {
+    const pairStats = this.pairsManager.getAllPairStats()
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("🔄 Refresh", "pairs"), Markup.button.callback("📊 Performance", "performance")],
+    ])
+
+    let message = "📈 **PAIR PERFORMANCE (24h)**\n\n"
+
+    for (const symbol of this.symbols) {
+      const stats = pairStats[symbol] || { trades: 0, winRate: 0, totalPnl: 0 }
+      const status = this.activePositions.has(symbol) ? "🟢 ACTIVE" : "⚪ WAITING"
+
+      message += `💎 **${symbol}** ${status}\n`
+      message += `📊 Trades: ${stats.trades} | Win Rate: ${stats.winRate.toFixed(1)}%\n`
+      message += `💰 PnL: ${stats.totalPnl > 0 ? "+" : ""}${stats.totalPnl.toFixed(2)}%\n\n`
+    }
+
+    message += `⏰ **Updated:** ${new Date().toLocaleString()}`
+
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    } else {
+      await ctx.reply(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    }
+  }
+
+  async handleSettings(ctx) {
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("📊 Status", "status"), Markup.button.callback("💼 Positions", "positions")],
+    ])
+
+    const message = `⚙️ **BOT SETTINGS**
+
+📊 **Configuration:**
+• Symbols: ${this.symbols.join(", ")}
+• Timeframe: ${process.env.TIMEFRAME}
+• Amount per pair: $${this.tradeAmountPerPair}
+• Max positions: ${this.maxConcurrentPositions}
+
+🎯 **Signal Settings:**
+• Minimum indicators: 3/5
+• Risk-Reward: 1:1
+• Analysis frequency: 30 seconds
+
+🔔 **Alert Settings:**
+• Price updates: Every 1% move
+• SL warnings: When 30% away
+• TP alerts: At 50% and 75% targets
+
+⏰ **Updated:** ${new Date().toLocaleString()}`
+
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    } else {
+      await ctx.reply(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    }
+  }
+
+  async handlePerformance(ctx) {
+    const report = this.pairsManager.getDailyReport()
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback("🔄 Refresh", "performance"), Markup.button.callback("📋 Pairs", "pairs")],
+    ])
+
+    const message = `📊 **DAILY PERFORMANCE**
+
+📈 **Overview:**
+• Total Trades: ${report.totalTrades}
+• Win Rate: ${report.avgWinRate.toFixed(1)}%
+• Total PnL: ${report.totalPnL > 0 ? "+" : ""}${report.totalPnL.toFixed(2)}%
+
+🏆 **Best Performer:** ${report.bestPair || "N/A"}
+📉 **Needs Attention:** ${report.worstPair || "N/A"}
+
+💡 **Today's Focus:**
+• Monitor ${report.bestPair || "top performers"}
+• Review ${report.worstPair || "underperformers"}
+• Maintain risk discipline
+
+⏰ **Updated:** ${new Date().toLocaleString()}`
+
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
+    } else {
+      await ctx.reply(message, {
+        parse_mode: "Markdown",
+        ...keyboard,
+      })
     }
   }
 
@@ -588,14 +769,30 @@ ${this.getPostTradeAdvice(reason, pnlPercent)}
     try {
       const currentPrice = await this.exchange.getCurrentPrice(symbol)
       if (!currentPrice) {
-        ctx.reply(`❌ Unable to get current price for ${symbol}`)
+        const message = `❌ Unable to get current price for ${symbol}`
+        if (ctx.callbackQuery) {
+          await ctx.editMessageText(message)
+        } else {
+          await ctx.reply(message)
+        }
         return
       }
 
       await this.closePosition(symbol, "MANUAL_CLOSE", currentPrice)
-      ctx.reply(`✅ Position closed manually for ${symbol}`)
+
+      const message = `✅ Position closed manually for ${symbol} at $${currentPrice.toFixed(4)}`
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(message)
+      } else {
+        await ctx.reply(message)
+      }
     } catch (error) {
-      ctx.reply(`❌ Error closing position: ${error.message}`)
+      const message = `❌ Error closing position: ${error.message}`
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(message)
+      } else {
+        await ctx.reply(message)
+      }
     }
   }
 
@@ -606,114 +803,77 @@ ${this.getPostTradeAdvice(reason, pnlPercent)}
     try {
       const currentPrice = await this.exchange.getCurrentPrice(symbol)
       if (!currentPrice) {
-        ctx.reply(`❌ Unable to get current price for ${symbol}`)
+        const message = `❌ Unable to get current price for ${symbol}`
+        if (ctx.callbackQuery) {
+          await ctx.editMessageText(message)
+        } else {
+          await ctx.reply(message)
+        }
         return
       }
 
-      // Trail stop to breakeven if in profit
       if (position.pnl > 0) {
         position.stopLoss = position.entryPrice
-        ctx.reply(`✅ Stop loss trailed to breakeven for ${symbol}`)
+        const message = `✅ Stop loss trailed to breakeven for ${symbol}`
 
-        const message = `
-🔄 STOP LOSS UPDATED: ${symbol}
+        if (ctx.callbackQuery) {
+          await ctx.editMessageText(message)
+        } else {
+          await ctx.reply(message)
+        }
 
-🛑 New Stop Loss: $${position.stopLoss.toFixed(4)} (Breakeven)
-📊 Current Price: $${currentPrice.toFixed(4)}
-📈 Protected Profit: Risk-free trade
+        await this.sendMessage(`🔄 **STOP LOSS UPDATED: ${symbol}**
 
-⏰ Time: ${new Date().toLocaleTimeString()}
-`
-
-        await this.sendMessage(message)
+🛑 **New Stop Loss:** $${position.stopLoss.toFixed(4)} (Breakeven)
+📊 **Current Price:** $${currentPrice.toFixed(4)}
+📈 **Protected Profit:** Risk-free trade`)
       } else {
-        ctx.reply(`⚠️ Position not in profit yet for ${symbol}`)
+        const message = `⚠️ Position not in profit yet for ${symbol}`
+        if (ctx.callbackQuery) {
+          await ctx.editMessageText(message)
+        } else {
+          await ctx.reply(message)
+        }
       }
     } catch (error) {
-      ctx.reply(`❌ Error trailing stop: ${error.message}`)
+      const message = `❌ Error trailing stop: ${error.message}`
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(message)
+      } else {
+        await ctx.reply(message)
+      }
     }
   }
 
-  getEntryQuality(signals) {
-    const bullish = signals.filter((s) => s.signal === "BUY").length
-    const bearish = signals.filter((s) => s.signal === "SELL").length
-    const total = Math.max(bullish, bearish)
-
-    if (total >= 5) return "🔥 Excellent"
-    if (total >= 4) return "✅ Good"
-    if (total >= 3) return "⚠️ Fair"
-    return "❌ Poor"
-  }
-
-  calculateMaxFavorable(position) {
-    // This would need to be tracked during position lifetime
-    // For now, return estimated based on TP distance
-    return Math.abs((position.takeProfit - position.entryPrice) / position.entryPrice) * 100
-  }
-
-  calculateMaxAdverse(position) {
-    // This would need to be tracked during position lifetime
-    // For now, return estimated based on SL distance
-    return Math.abs((position.entryPrice - position.stopLoss) / position.entryPrice) * 100
-  }
-
-  getTradePerformanceEmoji(pnl) {
-    if (pnl > 2) return "🚀"
-    if (pnl > 0) return "📈"
-    if (pnl > -1) return "📊"
-    return "📉"
-  }
-
-  getPerformanceText(pnl) {
-    if (pnl > 2) return "Excellent trade!"
-    if (pnl > 0) return "Profitable trade"
-    if (pnl > -1) return "Small loss - acceptable"
-    return "Review strategy"
-  }
-
-  getPostTradeAdvice(reason, pnl) {
+  // Helper methods
+  getTradingAdvice(side, signalStrength) {
     const advice = []
 
-    if (reason === "TAKE_PROFIT") {
-      advice.push("🎉 SUCCESSFUL TRADE!")
-      advice.push("💡 What worked:")
-      advice.push("• Strong signal confirmation")
-      advice.push("• Good risk management")
-      advice.push("• Patient execution")
+    if (signalStrength >= 4) {
+      advice.push("🔥 **HIGH CONFIDENCE SIGNAL**")
     } else {
-      advice.push("📚 LEARNING OPPORTUNITY:")
-      advice.push("💡 Review points:")
-      advice.push("• Entry timing")
-      advice.push("• Market conditions")
-      advice.push("• Signal quality")
+      advice.push("⚠️ **MODERATE SIGNAL**")
+    }
+
+    if (side === "BUY") {
+      advice.push("📈 **LONG STRATEGY:**")
+      advice.push("• Enter on any dip to entry zone")
+      advice.push("• Watch for volume confirmation")
+    } else {
+      advice.push("📉 **SHORT STRATEGY:**")
+      advice.push("• Enter on any bounce to entry zone")
+      advice.push("• Watch for breakdown confirmation")
     }
 
     return advice.join("\n")
   }
 
-  async sendDailySummary() {
-    const report = this.pairsManager.getDailyReport()
-
-    const message = `
-📊 DAILY TRADING SUMMARY
-
-📈 Performance Overview:
-• Total Trades: ${report.totalTrades}
-• Win Rate: ${report.avgWinRate.toFixed(1)}%
-• Total PnL: ${report.totalPnL > 0 ? "+" : ""}${report.totalPnL.toFixed(2)}%
-
-🏆 Best Performer: ${report.bestPair || "N/A"}
-📉 Needs Attention: ${report.worstPair || "N/A"}
-
-💡 Tomorrow's Focus:
-• Monitor ${report.bestPair || "top performers"}
-• Review ${report.worstPair || "underperformers"}
-• Maintain risk discipline
-
-⏰ Report Time: ${new Date().toLocaleString()}
-`
-
-    await this.sendMessage(message)
+  getPostTradeAdvice(reason, pnl) {
+    if (reason === "TAKE_PROFIT") {
+      return "🎉 **SUCCESSFUL TRADE!**\n💡 Strategy working well"
+    } else {
+      return "📚 **LEARNING OPPORTUNITY**\n💡 Review entry timing"
+    }
   }
 
   getIndicatorEmoji(indicator) {
@@ -727,6 +887,13 @@ ${this.getPostTradeAdvice(reason, pnlPercent)}
     return emojis[indicator] || "📊"
   }
 
+  getStrengthEmoji(strength) {
+    if (strength >= 5) return "🔥🔥🔥"
+    if (strength >= 4) return "🔥🔥"
+    if (strength >= 3) return "🔥"
+    return "⚡"
+  }
+
   formatDuration(ms) {
     const minutes = Math.floor(ms / 60000)
     const hours = Math.floor(minutes / 60)
@@ -735,7 +902,9 @@ ${this.getPostTradeAdvice(reason, pnlPercent)}
 
   async sendMessage(text) {
     try {
-      await this.bot.telegram.sendMessage(this.chatId, text)
+      await this.bot.telegram.sendMessage(this.chatId, text, {
+        parse_mode: "Markdown",
+      })
     } catch (error) {
       console.error("Failed to send message:", error)
     }
