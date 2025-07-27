@@ -68,18 +68,18 @@ class TradingSignals {
   }
 
   async calculateATR(symbol) {
-    const klines = await this.ta.getKlines(symbol, "5m", 20)
-    const highs = klines.map((k) => k.high)
-    const lows = klines.map((k) => k.low)
-    const closes = klines.map((k) => k.close)
+    try {
+      const klines = await this.ta.getKlines(symbol, "5m", 20)
+      const highs = klines.map((k) => k.high)
+      const lows = klines.map((k) => k.low)
+      const closes = klines.map((k) => k.close)
 
-    let atrSum = 0
-    for (let i = 1; i < klines.length; i++) {
-      const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1]))
-      atrSum += tr
+      const atrValues = this.ta.calculateATR(highs, lows, closes, 14)
+      return atrValues[atrValues.length - 1] || 0.001 // Fallback to prevent division by zero
+    } catch (error) {
+      console.error(`Error calculating ATR for ${symbol}:`, error)
+      return 0.001 // Fallback value
     }
-
-    return atrSum / (klines.length - 1)
   }
 
   calculateEntryLevels(price, signalType, atr) {

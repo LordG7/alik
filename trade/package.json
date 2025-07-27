@@ -67,7 +67,7 @@
     "axios": "^1.6.2",
     "dotenv": "^16.3.1",
     "sqlite3": "^5.1.6",
-    "talib": "^1.1.6"
+    "tulind": "^0.8.20"
   },
   "devDependencies": {
     "@types/node": "^22",
