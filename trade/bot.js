@@ -277,8 +277,8 @@ ${coinsStatus}
     })
 
     this.bot.action("refresh_coins", async (ctx) => {
-      await ctx.answerCbQuery("🔄 Refreshing coin list...")
-      await this.coinManager.updateVolatileCoins()
+      await ctx.answerCbQuery("🔄 Refreshing coin statistics...")
+      await this.coinManager.updateCoinStats()
       await this.showCoinSelection(ctx)
     })
 
@@ -348,7 +348,7 @@ ${coinsStatus}
     const userId = ctx.from.id
     const selectedCoins = this.userSelectedCoins.get(userId) || new Set()
 
-    // Get available coins from coin manager
+    // Get available coins from coin manager (now fixed list)
     const availableCoins = await this.coinManager.getAvailableCoins()
     const coinStats = await this.coinManager.getCoinStats(availableCoins)
 
@@ -373,7 +373,7 @@ ${coinsStatus}
     // Add control buttons
     keyboard.push([
       Markup.button.callback("🚀 Start Trading", "start_trading"),
-      Markup.button.callback("🔄 Refresh Coins", "refresh_coins"),
+      Markup.button.callback("🔄 Refresh Stats", "refresh_coins"),
       Markup.button.callback("🗑️ Clear All", "clear_coins"),
     ])
 
@@ -393,13 +393,14 @@ ${coinsStatus}
 ${selectedList || "None selected"}
 
 *Available Coins:*
-🔸 INJUSDT (Always available)
-🔸 Top 9 most volatile USDT pairs
+🔸 Fixed list of 10 premium trading pairs
+🔸 Includes major cryptocurrencies and trending tokens
+🔸 INJUSDT, BTC, ETH, SOL, and popular altcoins
 
 *Coin Selection Tips:*
-• Higher volatility = More trading opportunities
-• INJUSDT is specially featured
-• Mix different market caps for diversification
+• Mix major coins (BTC, ETH) with altcoins
+• PEPE, ROSE, SUI for higher volatility
+• Diversify across different market segments
   `
 
     if (ctx.callbackQuery) {

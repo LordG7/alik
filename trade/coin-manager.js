@@ -1,91 +1,72 @@
 class CoinManager {
   constructor(binanceClient) {
     this.binance = binanceClient
-    this.volatileCoins = []
+    // Fixed list of coins as specified
+    this.fixedCoins = [
+      "BTCUSDT",
+      "ETHUSDT",
+      "ROSEUSDT",
+      "INJUSDT",
+      "BNBUSDT",
+      "SOLUSDT",
+      "PEPEUSDT",
+      "XRPUSDT",
+      "SUIUSDT",
+      "DOGEUSDT",
+    ]
     this.lastUpdate = 0
     this.updateInterval = 300000 // 5 minutes
   }
 
   async getAvailableCoins() {
-    await this.updateVolatileCoinsIfNeeded()
-    return ["INJUSDT", ...this.volatileCoins]
+    // Return the fixed list of coins
+    return this.fixedCoins
   }
 
   async updateVolatileCoinsIfNeeded() {
+    // No need to update since we're using a fixed list
+    // But we can still update stats for display purposes
     const now = Date.now()
     if (now - this.lastUpdate > this.updateInterval) {
-      await this.updateVolatileCoins()
+      await this.updateCoinStats()
       this.lastUpdate = now
     }
   }
 
   async updateVolatileCoins() {
+    // Keep this method for compatibility but use fixed coins
+    console.log("🔄 Using fixed coin list...")
+    console.log("✅ Fixed coins:", this.fixedCoins.join(", "))
+  }
+
+  async updateCoinStats() {
     try {
-      console.log("🔄 Updating volatile coins list...")
+      console.log("🔄 Updating coin statistics...")
+      const coinStats = await this.getCoinStats(this.fixedCoins)
 
-      const ticker24hr = await this.binance.dailyStats()
-
-      // Filter and sort coins by volatility
-      const filteredCoins = ticker24hr
-        .filter((coin) => this.isValidTradingPair(coin))
-        .map((coin) => ({
-          symbol: coin.symbol,
-          priceChange: Number.parseFloat(coin.priceChangePercent),
-          volume: Number.parseFloat(coin.volume),
-          volatility: Math.abs(Number.parseFloat(coin.priceChangePercent)),
-        }))
-        .sort((a, b) => {
-          // Sort by volatility first, then by volume
-          if (Math.abs(b.volatility - a.volatility) < 1) {
-            return b.volume - a.volume
-          }
-          return b.volatility - a.volatility
+      const statsDisplay = this.fixedCoins
+        .map((coin) => {
+          const stats = coinStats[coin]
+          const changeText = stats ? `${stats.change24h.toFixed(2)}%` : "N/A"
+          return `${coin}: ${changeText}`
         })
-        .slice(0, 9)
-        .map((coin) => coin.symbol)
+        .join(", ")
 
-      this.volatileCoins = filteredCoins
-
-      console.log(
-        "✅ Updated volatile coins:",
-        this.volatileCoins
-          .map((coin) => `${coin} (${ticker24hr.find((t) => t.symbol === coin)?.priceChangePercent}%)`)
-          .join(", "),
-      )
+      console.log("✅ Updated coin stats:", statsDisplay)
     } catch (error) {
-      console.error("❌ Error updating volatile coins:", error)
-      // Fallback to popular coins
-      this.volatileCoins = [
-        "BTCUSDT",
-        "ETHUSDT",
-        "BNBUSDT",
-        "ADAUSDT",
-        "XRPUSDT",
-        "SOLUSDT",
-        "DOTUSDT",
-        "DOGEUSDT",
-        "AVAXUSDT",
-      ]
+      console.error("❌ Error updating coin stats:", error)
     }
   }
 
   isValidTradingPair(coin) {
-    return (
-      coin.symbol.endsWith("USDT") &&
-      !coin.symbol.includes("UP") &&
-      !coin.symbol.includes("DOWN") &&
-      !coin.symbol.includes("BULL") &&
-      !coin.symbol.includes("BEAR") &&
-      coin.symbol !== "INJUSDT" && // Exclude INJUSDT as it's always included
-      Number.parseFloat(coin.volume) > 1000000 && // Minimum volume filter
-      Number.parseFloat(coin.count) > 1000 // Minimum trade count
-    )
+    // Check if coin is in our fixed list
+    return this.fixedCoins.includes(coin.symbol)
   }
 
   getCoinInfo(symbol) {
     return {
       symbol,
-      isVolatile: this.volatileCoins.includes(symbol),
+      isFixed: this.fixedCoins.includes(symbol),
       isInjusdt: symbol === "INJUSDT",
     }
   }
