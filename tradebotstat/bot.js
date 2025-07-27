@@ -257,7 +257,7 @@ ${this.symbols.map((s) => `• ${s}`).join("\n")}
         this.isAnalyzing = true
 
         // Check existing positions first
-        await this.checkAllPositions()
+        await this.checkPositions() // Changed from checkAllPositions to checkPositions
 
         // Look for new opportunities if we have available slots
         if (this.activePositions.size < this.maxConcurrentPositions) {
@@ -443,7 +443,7 @@ ${this.getTradingAdvice(side, signalStrength)}`
     }
   }
 
-  async checkAllPositions() {
+  async checkPositions() {
     if (this.activePositions.size === 0) return
 
     const positionsToClose = []
