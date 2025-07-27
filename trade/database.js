@@ -10,98 +10,125 @@ class Database {
     this.db.serialize(() => {
       // Users table
       this.db.run(`
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY,
-                    telegram_id INTEGER UNIQUE,
-                    username TEXT,
-                    selected_coin TEXT,
-                    is_active BOOLEAN DEFAULT 1,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            `)
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY,
+          telegram_id INTEGER UNIQUE,
+          username TEXT,
+          selected_coin TEXT,
+          is_active BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
       // Signals table
       this.db.run(`
-                CREATE TABLE IF NOT EXISTS signals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    symbol TEXT,
-                    signal_type TEXT,
-                    price REAL,
-                    entry_price REAL,
-                    stop_loss REAL,
-                    take_profit TEXT,
-                    confidence INTEGER,
-                    timeframe TEXT,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id)
-                )
-            `)
+        CREATE TABLE IF NOT EXISTS signals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER,
+          symbol TEXT,
+          signal_type TEXT,
+          price REAL,
+          entry_price REAL,
+          stop_loss REAL,
+          take_profit TEXT,
+          confidence INTEGER,
+          timeframe TEXT,
+          status TEXT DEFAULT 'SENT',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users (telegram_id)
+        )
+      `)
 
       // Positions table
       this.db.run(`
-                CREATE TABLE IF NOT EXISTS positions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    symbol TEXT,
-                    side TEXT,
-                    size REAL,
-                    entry_price REAL,
-                    current_price REAL,
-                    pnl REAL,
-                    status TEXT DEFAULT 'OPEN',
-                    opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    closed_at DATETIME,
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id)
-                )
-            `)
+        CREATE TABLE IF NOT EXISTS positions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER,
+          symbol TEXT,
+          side TEXT,
+          size REAL,
+          entry_price REAL,
+          current_price REAL,
+          pnl REAL,
+          status TEXT DEFAULT 'OPEN',
+          opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          closed_at DATETIME,
+          FOREIGN KEY (user_id) REFERENCES users (telegram_id)
+        )
+      `)
 
       // Trades table for PnL tracking
       this.db.run(`
-                CREATE TABLE IF NOT EXISTS trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    symbol TEXT,
-                    side TEXT,
-                    quantity REAL,
-                    entry_price REAL,
-                    exit_price REAL,
-                    pnl REAL,
-                    commission REAL,
-                    trade_date DATE,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id)
-                )
-            `)
-
-      // Add to the init() method after existing tables
+        CREATE TABLE IF NOT EXISTS trades (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER,
+          symbol TEXT,
+          side TEXT,
+          quantity REAL,
+          entry_price REAL,
+          exit_price REAL,
+          pnl REAL,
+          commission REAL,
+          trade_date DATE,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users (telegram_id)
+        )
+      `)
 
       // Active signals table - tracks one active signal per user per coin
       this.db.run(`
-            CREATE TABLE IF NOT EXISTS active_signals (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                symbol TEXT,
-                signal_id INTEGER,
-                signal_type TEXT,
-                entry_price REAL,
-                stop_loss REAL,
-                take_profit TEXT,
-                status TEXT DEFAULT 'ACTIVE',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                closed_at DATETIME,
-                close_reason TEXT,
-                pnl REAL DEFAULT 0,
-                UNIQUE(user_id, symbol),
-                FOREIGN KEY (user_id) REFERENCES users (telegram_id),
-                FOREIGN KEY (signal_id) REFERENCES signals (id)
-            )
-        `)
+        CREATE TABLE IF NOT EXISTS active_signals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER,
+          symbol TEXT,
+          signal_id INTEGER,
+          signal_type TEXT,
+          entry_price REAL,
+          stop_loss REAL,
+          take_profit TEXT,
+          status TEXT DEFAULT 'ACTIVE',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          closed_at DATETIME,
+          close_reason TEXT,
+          pnl REAL DEFAULT 0,
+          UNIQUE(user_id, symbol),
+          FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+          FOREIGN KEY (signal_id) REFERENCES signals (id)
+        )
+      `)
 
-      // Update signals table to include status
-      this.db.run(`
-            ALTER TABLE signals ADD COLUMN status TEXT DEFAULT 'SENT'
-        `)
+      // Check and add missing columns safely
+      this.addColumnIfNotExists("signals", "status", 'TEXT DEFAULT "SENT"')
+    })
+  }
+
+  addColumnIfNotExists(tableName, columnName, columnDefinition) {
+    // First check if column exists
+    this.db.get(`PRAGMA table_info(${tableName})`, (err, rows) => {
+      if (err) {
+        console.error(`Error checking table info for ${tableName}:`, err)
+        return
+      }
+
+      // Check if we need to get all columns
+      this.db.all(`PRAGMA table_info(${tableName})`, (err, columns) => {
+        if (err) {
+          console.error(`Error getting columns for ${tableName}:`, err)
+          return
+        }
+
+        const columnExists = columns.some((col) => col.name === columnName)
+
+        if (!columnExists) {
+          this.db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`, (err) => {
+            if (err) {
+              console.error(`Error adding column ${columnName} to ${tableName}:`, err)
+            } else {
+              console.log(`✅ Added column ${columnName} to ${tableName}`)
+            }
+          })
+        }
+      })
     })
   }
 
@@ -157,10 +184,10 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db.run(
         `
-                INSERT INTO signals (user_id, symbol, signal_type, price, entry_price, 
-                                   stop_loss, take_profit, confidence, timeframe)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `,
+        INSERT INTO signals (user_id, symbol, signal_type, price, entry_price, 
+                           stop_loss, take_profit, confidence, timeframe)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
         [
           userId,
           signal.symbol,
@@ -197,10 +224,10 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db.run(
         `
-                INSERT INTO trades (user_id, symbol, side, quantity, entry_price, 
-                                  exit_price, pnl, commission, trade_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE('now'))
-            `,
+        INSERT INTO trades (user_id, symbol, side, quantity, entry_price, 
+                          exit_price, pnl, commission, trade_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE('now'))
+      `,
         [
           userId,
           trade.symbol,
@@ -223,16 +250,16 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db.all(
         `
-                SELECT 
-                    symbol,
-                    SUM(pnl) as total_pnl,
-                    COUNT(*) as trade_count,
-                    SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades
-                FROM trades 
-                WHERE user_id = ? AND trade_date = DATE('now')
-                GROUP BY symbol
-                ORDER BY total_pnl DESC
-            `,
+        SELECT 
+          symbol,
+          SUM(pnl) as total_pnl,
+          COUNT(*) as trade_count,
+          SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades
+        FROM trades 
+        WHERE user_id = ? AND trade_date = DATE('now')
+        GROUP BY symbol
+        ORDER BY total_pnl DESC
+      `,
         [userId],
         (err, rows) => {
           if (err) reject(err)
@@ -262,10 +289,10 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db.run(
         `
-            INSERT OR REPLACE INTO active_signals 
-            (user_id, symbol, signal_id, signal_type, entry_price, stop_loss, take_profit, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
-            `,
+        INSERT OR REPLACE INTO active_signals 
+        (user_id, symbol, signal_id, signal_type, entry_price, stop_loss, take_profit, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+      `,
         [
           userId,
           signal.symbol,
@@ -309,10 +336,10 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db.run(
         `
-            UPDATE active_signals 
-            SET status = 'CLOSED', closed_at = CURRENT_TIMESTAMP, close_reason = ?, pnl = ?
-            WHERE user_id = ? AND symbol = ? AND status = 'ACTIVE'
-            `,
+        UPDATE active_signals 
+        SET status = 'CLOSED', closed_at = CURRENT_TIMESTAMP, close_reason = ?, pnl = ?
+        WHERE user_id = ? AND symbol = ? AND status = 'ACTIVE'
+      `,
         [reason, pnl, userId, symbol],
         function (err) {
           if (err) reject(err)
