@@ -73,6 +73,35 @@ class Database {
                     FOREIGN KEY (user_id) REFERENCES users (telegram_id)
                 )
             `)
+
+      // Add to the init() method after existing tables
+
+      // Active signals table - tracks one active signal per user per coin
+      this.db.run(`
+            CREATE TABLE IF NOT EXISTS active_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                symbol TEXT,
+                signal_id INTEGER,
+                signal_type TEXT,
+                entry_price REAL,
+                stop_loss REAL,
+                take_profit TEXT,
+                status TEXT DEFAULT 'ACTIVE',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                closed_at DATETIME,
+                close_reason TEXT,
+                pnl REAL DEFAULT 0,
+                UNIQUE(user_id, symbol),
+                FOREIGN KEY (user_id) REFERENCES users (telegram_id),
+                FOREIGN KEY (signal_id) REFERENCES signals (id)
+            )
+        `)
+
+      // Update signals table to include status
+      this.db.run(`
+            ALTER TABLE signals ADD COLUMN status TEXT DEFAULT 'SENT'
+        `)
     })
   }
 
@@ -226,6 +255,79 @@ class Database {
           }
         },
       )
+    })
+  }
+
+  async saveActiveSignal(userId, signal, signalId) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        `
+            INSERT OR REPLACE INTO active_signals 
+            (user_id, symbol, signal_id, signal_type, entry_price, stop_loss, take_profit, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+            `,
+        [
+          userId,
+          signal.symbol,
+          signalId,
+          signal.type,
+          signal.entries[0],
+          signal.stopLoss,
+          JSON.stringify(signal.takeProfits),
+        ],
+        function (err) {
+          if (err) reject(err)
+          else resolve(this.lastID)
+        },
+      )
+    })
+  }
+
+  async getActiveSignal(userId, symbol) {
+    return new Promise((resolve, reject) => {
+      this.db.get(
+        "SELECT * FROM active_signals WHERE user_id = ? AND symbol = ? AND status = 'ACTIVE'",
+        [userId, symbol],
+        (err, row) => {
+          if (err) reject(err)
+          else resolve(row)
+        },
+      )
+    })
+  }
+
+  async getUserActiveSignals(userId) {
+    return new Promise((resolve, reject) => {
+      this.db.all("SELECT * FROM active_signals WHERE user_id = ? AND status = 'ACTIVE'", [userId], (err, rows) => {
+        if (err) reject(err)
+        else resolve(rows)
+      })
+    })
+  }
+
+  async closeActiveSignal(userId, symbol, reason, pnl = 0) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        `
+            UPDATE active_signals 
+            SET status = 'CLOSED', closed_at = CURRENT_TIMESTAMP, close_reason = ?, pnl = ?
+            WHERE user_id = ? AND symbol = ? AND status = 'ACTIVE'
+            `,
+        [reason, pnl, userId, symbol],
+        function (err) {
+          if (err) reject(err)
+          else resolve(this.changes)
+        },
+      )
+    })
+  }
+
+  async updateSignalStatus(signalId, status) {
+    return new Promise((resolve, reject) => {
+      this.db.run("UPDATE signals SET status = ? WHERE id = ?", [status, signalId], function (err) {
+        if (err) reject(err)
+        else resolve(this.changes)
+      })
     })
   }
 }

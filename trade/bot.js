@@ -33,8 +33,12 @@ class TradingBot {
     this.availableCoins = new Set()
     this.volatileCoins = []
 
+    this.activeSignals = new Map() // userId -> Map(symbol -> signalData)
+    this.signalCooldowns = new Map() // userId -> Map(symbol -> timestamp)
+
     this.setupCommands()
     this.setupCronJobs()
+    this.setupSignalManagement()
   }
 
   setupCommands() {
@@ -142,6 +146,11 @@ ${coinsStatus}
       await ctx.reply("🛑 Stopped receiving trading signals.")
     })
 
+    // Active signals command
+    this.bot.command("active", async (ctx) => {
+      await this.showActiveSignals(ctx)
+    })
+
     // Help command
     this.bot.command("help", async (ctx) => {
       const helpMessage = `
@@ -152,9 +161,15 @@ ${coinsStatus}
 /coin - Select trading coin (e.g., BTCUSDT)
 /status - Check current status
 /positions - View open positions
+/active - View active signals
 /pnl - Daily profit/loss report
 /stop - Stop receiving signals
 /help - Show this help menu
+
+*Signal Management:*
+• Only ONE signal per coin at a time
+• New signals sent after current ones close
+• Signals close on: Take Profit, Stop Loss, or Reversal
 
 *Signal Types:*
 🟢 LONG - Buy signal
@@ -265,6 +280,31 @@ ${coinsStatus}
       await ctx.answerCbQuery("🔄 Refreshing coin list...")
       await this.coinManager.updateVolatileCoins()
       await this.showCoinSelection(ctx)
+    })
+
+    // Handle manual signal closure
+    this.bot.action(/^close_(.+)$/, async (ctx) => {
+      const symbol = ctx.match[1]
+      const userId = ctx.from.id
+
+      try {
+        const activeSignal = await this.db.getActiveSignal(userId, symbol)
+
+        if (activeSignal) {
+          await this.closeSignal(userId, symbol, "MANUAL_CLOSE", 0, 0)
+          await ctx.answerCbQuery("✅ Signal closed manually")
+        } else {
+          await ctx.answerCbQuery("❌ No active signal found for this coin")
+        }
+      } catch (error) {
+        console.error("Error closing signal manually:", error)
+        await ctx.answerCbQuery("❌ Error closing signal")
+      }
+    })
+
+    // View active signals
+    this.bot.action("view_active_signals", async (ctx) => {
+      await this.showActiveSignals(ctx)
     })
   }
 
@@ -423,6 +463,167 @@ ${pnlData.topCoins.map((coin) => `• ${coin.symbol}: $${coin.pnl}`).join("\n")}
     })
   }
 
+  setupSignalManagement() {
+    // Check for signal closures every 30 seconds
+    cron.schedule("*/30 * * * * *", async () => {
+      if (this.isRunning && this.activeUsers.size > 0) {
+        await this.checkSignalClosures()
+      }
+    })
+
+    // Clean up old closed signals daily
+    cron.schedule("0 0 * * *", async () => {
+      await this.cleanupOldSignals()
+    })
+  }
+
+  async checkSignalClosures() {
+    for (const userId of this.activeUsers) {
+      try {
+        const activeSignals = await this.db.getUserActiveSignals(userId)
+
+        for (const activeSignal of activeSignals) {
+          await this.checkSignalStatus(userId, activeSignal)
+        }
+      } catch (error) {
+        console.error(`Error checking signal closures for user ${userId}:`, error)
+      }
+    }
+  }
+
+  async checkSignalStatus(userId, activeSignal) {
+    try {
+      const symbol = activeSignal.symbol
+      const klines = await this.ta.getKlines(symbol, "5m", 1)
+      const currentPrice = klines[0].close
+
+      const entryPrice = activeSignal.entry_price
+      const stopLoss = Number.parseFloat(activeSignal.stop_loss)
+      const takeProfits = JSON.parse(activeSignal.take_profit)
+      const signalType = activeSignal.signal_type
+
+      let shouldClose = false
+      let closeReason = ""
+      let pnl = 0
+
+      // Calculate PnL
+      if (signalType === "LONG") {
+        pnl = ((currentPrice - entryPrice) / entryPrice) * 100
+
+        // Check stop loss
+        if (currentPrice <= stopLoss) {
+          shouldClose = true
+          closeReason = "STOP_LOSS"
+        }
+        // Check take profits
+        else if (currentPrice >= Number.parseFloat(takeProfits[0])) {
+          shouldClose = true
+          closeReason = "TAKE_PROFIT"
+        }
+      } else {
+        // SHORT
+        pnl = ((entryPrice - currentPrice) / entryPrice) * 100
+
+        // Check stop loss
+        if (currentPrice >= stopLoss) {
+          shouldClose = true
+          closeReason = "STOP_LOSS"
+        }
+        // Check take profits
+        else if (currentPrice <= Number.parseFloat(takeProfits[0])) {
+          shouldClose = true
+          closeReason = "TAKE_PROFIT"
+        }
+      }
+
+      // Check for reversal signals
+      if (!shouldClose) {
+        const closeSignal = await this.signals.checkCloseSignal(symbol, {
+          side: signalType,
+          entryPrice: entryPrice,
+        })
+
+        if (closeSignal) {
+          shouldClose = true
+          closeReason = "REVERSAL_SIGNAL"
+        }
+      }
+
+      if (shouldClose) {
+        await this.closeSignal(userId, symbol, closeReason, pnl, currentPrice)
+      }
+    } catch (error) {
+      console.error(`Error checking signal status for ${activeSignal.symbol}:`, error)
+    }
+  }
+
+  async closeSignal(userId, symbol, reason, pnl, currentPrice) {
+    try {
+      // Close the active signal in database
+      await this.db.closeActiveSignal(userId, symbol, reason, pnl)
+
+      // Remove from active signals tracking
+      if (this.activeSignals.has(userId)) {
+        this.activeSignals.get(userId).delete(symbol)
+      }
+
+      // Send closure notification
+      await this.sendSignalClosure(userId, symbol, reason, pnl, currentPrice)
+
+      console.log(`📊 Signal closed for ${symbol} - User: ${userId}, Reason: ${reason}, PnL: ${pnl.toFixed(2)}%`)
+    } catch (error) {
+      console.error(`Error closing signal for ${symbol}:`, error)
+    }
+  }
+
+  async sendSignalClosure(userId, symbol, reason, pnl, currentPrice) {
+    const emoji = {
+      TAKE_PROFIT: "🎯",
+      STOP_LOSS: "🛑",
+      REVERSAL_SIGNAL: "⚠️",
+    }
+
+    const pnlEmoji = pnl > 0 ? "🟢" : "🔴"
+    const reasonText = {
+      TAKE_PROFIT: "Take Profit Hit",
+      STOP_LOSS: "Stop Loss Hit",
+      REVERSAL_SIGNAL: "Reversal Signal",
+    }
+
+    const message = `
+${emoji[reason]} *SIGNAL CLOSED*
+
+📊 *${symbol}*
+💰 Current Price: $${currentPrice.toFixed(4)}
+📈 P&L: ${pnlEmoji} ${pnl.toFixed(2)}%
+
+🔔 Reason: ${reasonText[reason]}
+⏰ Time: ${new Date().toLocaleTimeString()}
+
+✅ Ready for new signals on this coin!
+    `
+
+    try {
+      await this.bot.telegram.sendMessage(userId, message, {
+        parse_mode: "Markdown",
+      })
+    } catch (error) {
+      console.error(`Error sending closure notification to user ${userId}:`, error)
+    }
+  }
+
+  async cleanupOldSignals() {
+    try {
+      // Remove closed signals older than 7 days
+      await this.db.db.run(
+        "DELETE FROM active_signals WHERE status = 'CLOSED' AND closed_at < datetime('now', '-7 days')",
+      )
+      console.log("🧹 Cleaned up old closed signals")
+    } catch (error) {
+      console.error("Error cleaning up old signals:", error)
+    }
+  }
+
   async startMonitoring(userId, coin) {
     this.isRunning = true
     console.log(`Started monitoring ${coin} for user ${userId}`)
@@ -430,18 +631,45 @@ ${pnlData.topCoins.map((coin) => `• ${coin.symbol}: $${coin.pnl}`).join("\n")}
 
   async checkSignals() {
     for (const userId of this.activeUsers) {
-      const coin = this.userCoins.get(userId)
-      if (!coin) continue
+      const selectedCoins = this.userSelectedCoins.get(userId)
+      if (!selectedCoins || selectedCoins.size === 0) continue
 
-      try {
-        const signal = await this.signals.generateSignal(coin)
+      // Initialize user's active signals map if not exists
+      if (!this.activeSignals.has(userId)) {
+        this.activeSignals.set(userId, new Map())
+      }
 
-        if (signal) {
-          await this.sendSignal(userId, signal)
-          await this.db.saveSignal(userId, signal)
+      for (const coin of selectedCoins) {
+        try {
+          // Check if there's already an active signal for this coin
+          const activeSignal = await this.db.getActiveSignal(userId, coin)
+
+          if (activeSignal) {
+            console.log(`⏳ Active signal exists for ${coin} - User: ${userId}, skipping new signal generation`)
+            continue
+          }
+
+          // Generate new signal only if no active signal exists
+          const signal = await this.signals.generateSignal(coin)
+
+          if (signal) {
+            const signalId = await this.db.saveSignal(userId, signal)
+            await this.db.saveActiveSignal(userId, signal, signalId)
+
+            // Track in memory
+            this.activeSignals.get(userId).set(coin, {
+              signalId: signalId,
+              symbol: coin,
+              type: signal.type,
+              timestamp: Date.now(),
+            })
+
+            await this.sendSignal(userId, signal)
+            console.log(`📊 New signal sent for ${coin} - User: ${userId}, Type: ${signal.type}`)
+          }
+        } catch (error) {
+          console.error(`Error checking signals for ${coin}:`, error)
         }
-      } catch (error) {
-        console.error(`Error checking signals for ${coin}:`, error)
       }
     }
   }
@@ -476,6 +704,9 @@ ${signal.takeProfits.map((tp, i) => `TP${i + 1}: $${tp}`).join("\n")}
 • CCI: ${signal.indicators.cci}
 
 ⚡ *Confidence:* ${signal.confidence}%
+
+🔔 *This signal is now ACTIVE*
+⏳ No new signals for ${signal.symbol} until this closes
         `
 
     try {
@@ -484,8 +715,9 @@ ${signal.takeProfits.map((tp, i) => `TP${i + 1}: $${tp}`).join("\n")}
         reply_markup: Markup.inlineKeyboard([
           [
             Markup.button.callback("📊 View Chart", `chart_${signal.symbol}`),
-            Markup.button.callback("💼 Auto Trade", `auto_${signal.symbol}_${signal.type}`),
+            Markup.button.callback("❌ Close Signal", `close_${signal.symbol}`),
           ],
+          [Markup.button.callback("📈 Active Signals", "view_active_signals")],
         ]).reply_markup,
       })
     } catch (error) {
@@ -547,23 +779,55 @@ ${signal.takeProfits.map((tp, i) => `TP${i + 1}: $${tp}`).join("\n")}
     console.log(`Started monitoring ${Array.from(coins).join(", ")} for user ${userId}`)
   }
 
-  async checkSignals() {
-    for (const userId of this.activeUsers) {
-      const selectedCoins = this.userSelectedCoins.get(userId)
-      if (!selectedCoins || selectedCoins.size === 0) continue
+  async showActiveSignals(ctx) {
+    const userId = ctx.from.id
 
-      for (const coin of selectedCoins) {
-        try {
-          const signal = await this.signals.generateSignal(coin)
+    try {
+      const activeSignals = await this.db.getUserActiveSignals(userId)
 
-          if (signal) {
-            await this.sendSignal(userId, signal)
-            await this.db.saveSignal(userId, signal)
-          }
-        } catch (error) {
-          console.error(`Error checking signals for ${coin}:`, error)
+      if (activeSignals.length === 0) {
+        const message = "📊 *Active Signals*\n\n❌ No active signals found.\n\n✅ All coins are ready for new signals!"
+
+        if (ctx.callbackQuery) {
+          await ctx.editMessageText(message, { parse_mode: "Markdown" })
+        } else {
+          await ctx.replyWithMarkdown(message)
         }
+        return
       }
+
+      let message = "📊 *Active Signals*\n\n"
+
+      for (const signal of activeSignals) {
+        const emoji = signal.signal_type === "LONG" ? "🟢" : "🔴"
+        const timeAgo = Math.floor((Date.now() - new Date(signal.created_at).getTime()) / (1000 * 60))
+
+        message += `${emoji} *${signal.symbol}*\n`
+        message += `Type: ${signal.signal_type}\n`
+        message += `Entry: $${signal.entry_price}\n`
+        message += `Stop Loss: $${signal.stop_loss}\n`
+        message += `Active: ${timeAgo}m ago\n\n`
+      }
+
+      message += `📈 Total Active: ${activeSignals.length}\n`
+      message += `⏳ These coins won't receive new signals until current ones close`
+
+      const keyboard = [
+        [Markup.button.callback("🔄 Refresh", "view_active_signals")],
+        [Markup.button.callback("📊 View Positions", "view_positions")],
+      ]
+
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(message, {
+          parse_mode: "Markdown",
+          reply_markup: Markup.inlineKeyboard(keyboard).reply_markup,
+        })
+      } else {
+        await ctx.replyWithMarkdown(message, Markup.inlineKeyboard(keyboard))
+      }
+    } catch (error) {
+      console.error("Error showing active signals:", error)
+      await ctx.reply("❌ Error fetching active signals")
     }
   }
 
