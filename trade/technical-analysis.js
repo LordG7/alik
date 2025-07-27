@@ -85,8 +85,8 @@ class TechnicalAnalysis {
     return rsiValues
   }
 
-  // Custom Stochastic calculation
-  calculateStochastic(highs, lows, closes, kPeriod = 14, dPeriod = 3) {
+  // Custom Stochastic calculation helper
+  calculateStochasticValues(highs, lows, closes, kPeriod = 14, dPeriod = 3) {
     const kValues = []
 
     for (let i = kPeriod - 1; i < closes.length; i++) {
@@ -111,8 +111,8 @@ class TechnicalAnalysis {
     return { k: kValues, d: dValues }
   }
 
-  // Custom CCI calculation
-  calculateCCI(highs, lows, closes, period = 20) {
+  // Custom CCI calculation helper
+  calculateCCIValues(highs, lows, closes, period = 20) {
     const typicalPrices = []
     for (let i = 0; i < closes.length; i++) {
       typicalPrices.push((highs[i] + lows[i] + closes[i]) / 3)
@@ -251,7 +251,7 @@ class TechnicalAnalysis {
       const lows = klines.map((k) => k.low)
       const closes = klines.map((k) => k.close)
 
-      const stoch = this.calculateStochastic(highs, lows, closes, 14, 3)
+      const stoch = this.calculateStochasticValues(highs, lows, closes, 14, 3)
 
       const currentK = stoch.k[stoch.k.length - 1]
       const currentD = stoch.d[stoch.d.length - 1]
@@ -281,7 +281,7 @@ class TechnicalAnalysis {
       const lows = klines.map((k) => k.low)
       const closes = klines.map((k) => k.close)
 
-      const cciValues = this.calculateCCI(highs, lows, closes, 20)
+      const cciValues = this.calculateCCIValues(highs, lows, closes, 20)
       const currentCCI = cciValues[cciValues.length - 1]
 
       let signal = "HOLD"
