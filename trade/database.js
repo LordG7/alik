@@ -89,6 +89,32 @@ class Database {
     })
   }
 
+  async updateUserCoins(telegramId, coins) {
+    return new Promise((resolve, reject) => {
+      const coinsJson = JSON.stringify(coins)
+      this.db.run("UPDATE users SET selected_coin = ? WHERE telegram_id = ?", [coinsJson, telegramId], function (err) {
+        if (err) reject(err)
+        else resolve(this.changes)
+      })
+    })
+  }
+
+  async getUserCoins(telegramId) {
+    return new Promise((resolve, reject) => {
+      this.db.get("SELECT selected_coin FROM users WHERE telegram_id = ?", [telegramId], (err, row) => {
+        if (err) reject(err)
+        else {
+          try {
+            const coins = row && row.selected_coin ? JSON.parse(row.selected_coin) : []
+            resolve(coins)
+          } catch (parseError) {
+            resolve([])
+          }
+        }
+      })
+    })
+  }
+
   async updateUserCoin(telegramId, coin) {
     return new Promise((resolve, reject) => {
       this.db.run("UPDATE users SET selected_coin = ? WHERE telegram_id = ?", [coin, telegramId], function (err) {
