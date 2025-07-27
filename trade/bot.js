@@ -307,8 +307,7 @@ ${coinsStatus}
       await this.showActiveSignals(ctx)
     })
 
-    // Add this in the setupCommands method after other action handlers
-
+    // Handle trading instructions
     this.bot.action(/^instructions_(.+)$/, async (ctx) => {
       const symbol = ctx.match[1]
       const userId = ctx.from.id
