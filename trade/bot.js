@@ -306,6 +306,43 @@ ${coinsStatus}
     this.bot.action("view_active_signals", async (ctx) => {
       await this.showActiveSignals(ctx)
     })
+
+    // Add this in the setupCommands method after other action handlers
+
+    this.bot.action(/^instructions_(.+)$/, async (ctx) => {
+      const symbol = ctx.match[1]
+      const userId = ctx.from.id
+
+      try {
+        const activeSignal = await this.db.getActiveSignal(userId, symbol)
+
+        if (activeSignal) {
+          const signal = {
+            symbol: activeSignal.symbol,
+            type: activeSignal.signal_type,
+            entries: [activeSignal.entry_price],
+            stopLoss: activeSignal.stop_loss,
+            takeProfits: JSON.parse(activeSignal.take_profit),
+            confidence: 85, // Default confidence for active signals
+          }
+
+          const instructions = this.generateTradingInstructions(signal)
+
+          await ctx.replyWithMarkdown(
+            instructions,
+            Markup.inlineKeyboard([
+              [Markup.button.url("🚀 Run on Binance", this.generateBinanceUrl(signal))],
+              [Markup.button.callback("❌ Close Signal", `close_${symbol}`)],
+            ]),
+          )
+        } else {
+          await ctx.answerCbQuery("❌ No active signal found for this coin")
+        }
+      } catch (error) {
+        console.error("Error showing trading instructions:", error)
+        await ctx.answerCbQuery("❌ Error loading instructions")
+      }
+    })
   }
 
   async showCoinSelection(ctx) {
@@ -581,6 +618,7 @@ ${pnlData.topCoins.map((coin) => `• ${coin.symbol}: $${coin.pnl}`).join("\n")}
       TAKE_PROFIT: "🎯",
       STOP_LOSS: "🛑",
       REVERSAL_SIGNAL: "⚠️",
+      MANUAL_CLOSE: "👤",
     }
 
     const pnlEmoji = pnl > 0 ? "🟢" : "🔴"
@@ -588,24 +626,31 @@ ${pnlData.topCoins.map((coin) => `• ${coin.symbol}: $${coin.pnl}`).join("\n")}
       TAKE_PROFIT: "Take Profit Hit",
       STOP_LOSS: "Stop Loss Hit",
       REVERSAL_SIGNAL: "Reversal Signal",
+      MANUAL_CLOSE: "Manual Close",
     }
 
     const message = `
 ${emoji[reason]} *SIGNAL CLOSED*
 
 📊 *${symbol}*
-💰 Current Price: $${currentPrice.toFixed(4)}
+💰 Exit Price: $${currentPrice?.toFixed(4) || "N/A"}
 📈 P&L: ${pnlEmoji} ${pnl.toFixed(2)}%
 
 🔔 Reason: ${reasonText[reason]}
-⏰ Time: ${new Date().toLocaleTimeString()}
+⏰ Closed: ${new Date().toLocaleTimeString()}
 
-✅ Ready for new signals on this coin!
-    `
+${pnl > 0 ? "🎉 Congratulations on the profit!" : "💪 Better luck next time!"}
+
+✅ *${symbol}* is now ready for new signals!
+  `
 
     try {
       await this.bot.telegram.sendMessage(userId, message, {
         parse_mode: "Markdown",
+        reply_markup: Markup.inlineKeyboard([
+          [Markup.button.callback("📊 View Active Signals", "view_active_signals")],
+          [Markup.button.callback("💰 Check P&L", "check_pnl")],
+        ]).reply_markup,
       })
     } catch (error) {
       console.error(`Error sending closure notification to user ${userId}:`, error)
@@ -707,12 +752,13 @@ ${signal.takeProfits.map((tp, i) => `TP${i + 1}: $${tp}`).join("\n")}
 
 🔔 *This signal is now ACTIVE*
 ⏳ No new signals for ${signal.symbol} until this closes
-        `
+  `
 
     try {
       await this.bot.telegram.sendMessage(userId, message, {
         parse_mode: "Markdown",
         reply_markup: Markup.inlineKeyboard([
+          [Markup.button.url("🚀 Run on Binance", this.generateBinanceUrl(signal))],
           [
             Markup.button.callback("📊 View Chart", `chart_${signal.symbol}`),
             Markup.button.callback("❌ Close Signal", `close_${signal.symbol}`),
@@ -829,6 +875,40 @@ ${signal.takeProfits.map((tp, i) => `TP${i + 1}: $${tp}`).join("\n")}
       console.error("Error showing active signals:", error)
       await ctx.reply("❌ Error fetching active signals")
     }
+  }
+
+  generateBinanceUrl(signal) {
+    // Generate Binance Futures trading URL with pre-filled parameters
+    const baseUrl = "https://www.binance.com/en/futures"
+    const symbol = signal.symbol.replace("USDT", "_USDT")
+
+    // Create URL with symbol parameter
+    const binanceUrl = `${baseUrl}/${symbol}`
+
+    return binanceUrl
+  }
+
+  generateTradingInstructions(signal) {
+    const side = signal.type === "LONG" ? "Buy/Long" : "Sell/Short"
+
+    return `
+📋 *Trading Instructions for ${signal.symbol}*
+
+1️⃣ **Action**: ${side}
+2️⃣ **Entry**: ${signal.entries[0]} - ${signal.entries[1] || signal.entries[0]}
+3️⃣ **Stop Loss**: ${signal.stopLoss}
+4️⃣ **Take Profits**:
+   • TP1: ${signal.takeProfits[0]}
+   • TP2: ${signal.takeProfits[1]}
+   • TP3: ${signal.takeProfits[2]}
+
+⚠️ **Risk Management**:
+• Use only 1-2% of your portfolio
+• Set stop loss immediately after entry
+• Take partial profits at each TP level
+
+🎯 **Confidence**: ${signal.confidence}%
+  `
   }
 
   start() {
