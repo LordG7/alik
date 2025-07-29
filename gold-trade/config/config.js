@@ -53,7 +53,9 @@ module.exports = {
     path: process.env.DATABASE_PATH || "./trading_bot.db",
   },
   api: {
-    key: process.env.API_KEY,
-    baseUrl: "https://api.fxempire.com/v1",
+    tradingViewUrl: "https://scanner.tradingview.com",
+    symbol: "FX_IDC:XAUUSD",
+    intervals: ["1m", "5m"],
+    requestTimeout: 10000,
   },
 }

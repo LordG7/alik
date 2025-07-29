@@ -30,7 +30,7 @@ Advanced GOLD (XAU/USD) scalping bot with 95%+ accuracy target, featuring 10+ te
 ### Prerequisites
 
 - Node.js 18+
-- Telegram Bot Token
+- Telegram Bot Token (get from @BotFather)
 - Digital Ocean Ubuntu 24.10 server
 
 ### Installation
@@ -45,16 +45,18 @@ npm install
 2. **Configure environment:**
 \`\`\`bash
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env with your Telegram bot token and admin user ID
 \`\`\`
 
-3. **Deploy to Digital Ocean:**
+**No forex account needed!** The bot uses TradingView's free market data.
+
+4. **Deploy to Digital Ocean:**
 \`\`\`bash
 chmod +x deploy.sh
 ./deploy.sh
 \`\`\`
 
-4. **Start the bot:**
+5. **Start the bot:**
 \`\`\`bash
 sudo systemctl start gold-scalping-bot
 \`\`\`

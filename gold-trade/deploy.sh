@@ -35,7 +35,6 @@ sudo chown -R $USER:$USER /opt/gold-scalping-bot
 cat > .env << EOF
 BOT_TOKEN=your_telegram_bot_token_here
 ADMIN_USER_ID=your_telegram_user_id
-API_KEY=your_forex_api_key
 DATABASE_PATH=/app/data/trading_bot.db
 LOG_LEVEL=info
 ENVIRONMENT=production

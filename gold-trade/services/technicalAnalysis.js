@@ -1,4 +1,4 @@
-const { EMA, RSI, Stochastic, CCI, ATR, BollingerBands, MACD, VWAP } = require("technical-indicators")
+const TechnicalIndicators = require("./technicalIndicators")
 const config = require("../config/config")
 const logger = require("../utils/logger")
 
@@ -15,67 +15,47 @@ class TechnicalAnalysisService {
       const volumes = ohlcData.map((d) => d.volume)
 
       // EMA calculations
-      const emaFast = EMA.calculate({
-        period: this.indicators.ema.fast,
-        values: closes,
-      })
-
-      const emaSlow = EMA.calculate({
-        period: this.indicators.ema.slow,
-        values: closes,
-      })
+      const emaFast = TechnicalIndicators.EMA(closes, this.indicators.ema.fast)
+      const emaSlow = TechnicalIndicators.EMA(closes, this.indicators.ema.slow)
 
       // RSI
-      const rsi = RSI.calculate({
-        period: this.indicators.rsi.period,
-        values: closes,
-      })
+      const rsi = TechnicalIndicators.RSI(closes, this.indicators.rsi.period)
 
       // Stochastic
-      const stochastic = Stochastic.calculate({
-        high: highs,
-        low: lows,
-        close: closes,
-        period: this.indicators.stochastic.kPeriod,
-        signalPeriod: this.indicators.stochastic.dPeriod,
-      })
+      const stochastic = TechnicalIndicators.Stochastic(
+        highs,
+        lows,
+        closes,
+        this.indicators.stochastic.kPeriod,
+        this.indicators.stochastic.dPeriod,
+      )
 
       // CCI
-      const cci = CCI.calculate({
-        high: highs,
-        low: lows,
-        close: closes,
-        period: this.indicators.cci.period,
-      })
+      const cci = TechnicalIndicators.CCI(highs, lows, closes, this.indicators.cci.period)
 
       // ATR
-      const atr = ATR.calculate({
-        high: highs,
-        low: lows,
-        close: closes,
-        period: this.indicators.atr.period,
-      })
+      const atr = TechnicalIndicators.ATR(highs, lows, closes, this.indicators.atr.period)
 
       // Bollinger Bands
-      const bb = BollingerBands.calculate({
-        period: this.indicators.bollinger.period,
-        stdDev: this.indicators.bollinger.stdDev,
-        values: closes,
-      })
+      const bb = TechnicalIndicators.BollingerBands(
+        closes,
+        this.indicators.bollinger.period,
+        this.indicators.bollinger.stdDev,
+      )
 
       // MACD
-      const macd = MACD.calculate({
-        fastPeriod: this.indicators.macd.fast,
-        slowPeriod: this.indicators.macd.slow,
-        signalPeriod: this.indicators.macd.signal,
-        values: closes,
-      })
+      const macd = TechnicalIndicators.MACD(
+        closes,
+        this.indicators.macd.fast,
+        this.indicators.macd.slow,
+        this.indicators.macd.signal,
+      )
 
-      // VWAP (simplified calculation)
-      const vwap = this.calculateVWAP(ohlcData)
+      // VWAP
+      const vwap = TechnicalIndicators.VWAP(highs, lows, closes, volumes)
 
-      // SuperTrend (custom implementation)
-      const superTrend = this.calculateSuperTrend(highs, lows, closes, atr)
+      // SuperTrend
+      const superTrend = TechnicalIndicators.SuperTrend(highs, lows, closes)
 
       return {
         emaFast: emaFast[emaFast.length - 1],
@@ -94,54 +74,6 @@ class TechnicalAnalysisService {
       logger.error("Error calculating indicators:", error)
       return null
     }
-  }
-
-  calculateVWAP(ohlcData) {
-    const vwap = []
-    let cumulativeTPV = 0
-    let cumulativeVolume = 0
-
-    for (let i = 0; i < ohlcData.length; i++) {
-      const typicalPrice = (ohlcData[i].high + ohlcData[i].low + ohlcData[i].close) / 3
-      const tpv = typicalPrice * ohlcData[i].volume
-
-      cumulativeTPV += tpv
-      cumulativeVolume += ohlcData[i].volume
-
-      vwap.push(cumulativeTPV / cumulativeVolume)
-    }
-
-    return vwap
-  }
-
-  calculateSuperTrend(highs, lows, closes, atr, multiplier = 3) {
-    const superTrend = []
-    const hl2 = highs.map((high, i) => (high + lows[i]) / 2)
-
-    for (let i = 0; i < closes.length; i++) {
-      if (i === 0) {
-        superTrend.push({ value: hl2[i], trend: 1 })
-        continue
-      }
-
-      const upperBand = hl2[i] + multiplier * atr[i]
-      const lowerBand = hl2[i] - multiplier * atr[i]
-
-      let trend = superTrend[i - 1].trend
-      let value = superTrend[i - 1].value
-
-      if (closes[i] > upperBand) {
-        trend = 1
-        value = lowerBand
-      } else if (closes[i] < lowerBand) {
-        trend = -1
-        value = upperBand
-      }
-
-      superTrend.push({ value, trend })
-    }
-
-    return superTrend
   }
 
   generateSignal(indicators) {

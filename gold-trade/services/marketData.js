@@ -1,11 +1,8 @@
-const axios = require("axios")
-const config = require("../config/config")
+const tradingViewData = require("./tradingViewData")
 const logger = require("../utils/logger")
 
 class MarketDataService {
   constructor() {
-    this.baseUrl = config.api.baseUrl
-    this.apiKey = config.api.key
     this.cache = new Map()
     this.cacheTimeout = 30000 // 30 seconds
   }
@@ -19,8 +16,8 @@ class MarketDataService {
     }
 
     try {
-      // Simulated OHLC data for GOLD - replace with real API
-      const data = this.generateSimulatedData(limit)
+      // Use TradingView data service
+      const data = await tradingViewData.getMarketData(timeframe, limit)
 
       this.cache.set(cacheKey, {
         data,
@@ -34,39 +31,20 @@ class MarketDataService {
     }
   }
 
-  generateSimulatedData(limit) {
-    const data = []
-    let basePrice = 2000 + Math.random() * 100 // GOLD price around 2000-2100
-
-    for (let i = 0; i < limit; i++) {
-      const change = (Math.random() - 0.5) * 10 // Random price movement
-      const open = basePrice
-      const close = basePrice + change
-      const high = Math.max(open, close) + Math.random() * 5
-      const low = Math.min(open, close) - Math.random() * 5
-      const volume = 1000 + Math.random() * 5000
-
-      data.unshift({
-        timestamp: Date.now() - i * 60000, // 1 minute intervals
-        open,
-        high,
-        low,
-        close,
-        volume,
-      })
-
-      basePrice = close
-    }
-
-    return data
-  }
-
   async getCurrentPrice(symbol) {
     try {
-      const data = await this.getOHLCData(symbol, "1m", 1)
-      return data[0].close
+      return await tradingViewData.getCurrentPrice()
     } catch (error) {
       logger.error("Error getting current price:", error)
+      return null
+    }
+  }
+
+  async getMultiTimeframeAnalysis() {
+    try {
+      return await tradingViewData.getMultiTimeframeData()
+    } catch (error) {
+      logger.error("Error getting multi-timeframe data:", error)
       return null
     }
   }
