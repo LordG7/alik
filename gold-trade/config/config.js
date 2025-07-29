@@ -6,14 +6,14 @@ module.exports = {
     adminUserId: Number.parseInt(process.env.ADMIN_USER_ID),
   },
   trading: {
-    symbol: "XAUUSD",
+    symbol: "GOLD_FUTURES",
     timeframes: ["1m", "5m"],
     riskPerTrade: 0.02, // 2% risk per trade
     maxDailyTrades: 20,
     tradingHours: {
       start: 9,
       end: 20,
-      timezone: "Asia/Baku",
+      timezone: "America/New_York",
     },
   },
   indicators: {
@@ -54,7 +54,7 @@ module.exports = {
   },
   api: {
     tradingViewUrl: "https://scanner.tradingview.com",
-    symbol: "TVC:GOLD", // Changed from FX_IDC:XAUUSD to TVC:GOLD
+    symbol: "COMEX:GC1!", // GOLD Futures main contract
     intervals: ["1m", "5m"],
     requestTimeout: 10000,
   },

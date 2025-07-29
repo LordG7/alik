@@ -28,13 +28,13 @@ class TelegramBotService {
         await database.addUser(userId, username)
 
         const welcomeMessage = `
-🏆 *Welcome to GOLD Scalping Bot!*
+🏆 *Welcome to GOLD Futures Scalping Bot!*
 
-📊 *Tracking: TVC:GOLD (US$/OZ) Commodity CFD*
+📊 *Tracking: COMEX:GC1! GOLD Futures*
 
 🔥 *Features:*
 • Advanced technical analysis with 10+ indicators
-• Real-time GOLD commodity CFD signals
+• Real-time GOLD Futures signals
 • 95%+ accuracy target
 • Risk management included
 • 1-5 minute scalping signals
@@ -46,7 +46,7 @@ class TelegramBotService {
 /stop - Stop receiving signals
 /help - Show this help message
 
-⚡ *Ready to receive premium GOLD commodity signals!*
+⚡ *Ready to receive premium GOLD Futures signals!*
         `
 
         await ctx.replyWithMarkdown(
@@ -68,9 +68,9 @@ class TelegramBotService {
       const status = `
 🤖 *Bot Status: ACTIVE*
 
-📈 *Market: TVC:GOLD (US$/OZ) Commodity CFD*
-🏛️ *Exchange: TradingView Composite*
-⏰ *Trading Hours: 24/5 (Mon-Fri)*
+📈 *Market: COMEX:GC1! GOLD Futures*
+🏛️ *Exchange: COMEX (CME Group)*
+⏰ *Trading Hours: 23:00-22:00 EST (Sun-Fri)*
 🎯 *Target Accuracy: 95%+*
 ⚡ *Signal Frequency: 1-5 minutes*
 
@@ -130,22 +130,22 @@ class TelegramBotService {
 
     this.bot.command("help", async (ctx) => {
       const helpMessage = `
-❓ *GOLD Scalping Bot Help*
+❓ *GOLD Futures Scalping Bot Help*
 
 🎯 *How it works:*
-1. Bot analyzes GOLD market 24/7
+1. Bot analyzes GOLD Futures market 24/5
 2. Uses 10+ technical indicators
 3. Sends high-probability signals
 4. Includes entry, SL, and TP levels
 
 📊 *Signal Format:*
-🟢 BUY GOLD @ 2050.25
-🛑 SL: 2048.50
-🎯 TP: 2052.75
+🟢 BUY GC1! @ 3325.5
+🛑 SL: 3320.0
+🎯 TP: 3331.0
 📈 Confidence: 87%
 
 ⚠️ *Risk Warning:*
-Trading involves risk. Never risk more than you can afford to lose.
+Futures trading involves substantial risk. Never risk more than you can afford to lose.
 
 📞 *Support:* Contact @admin for issues
       `
@@ -192,9 +192,9 @@ Trading involves risk. Never risk more than you can afford to lose.
     const arrow = signal.type === "BUY" ? "📈" : "📉"
 
     return `
-${emoji} *${signal.type} TVC:GOLD SIGNAL*
+${emoji} *${signal.type} GOLD FUTURES SIGNAL*
 
-🏛️ *Instrument: GOLD (US$/OZ) Commodity CFD*
+🏛️ *Contract: COMEX:GC1! (Gold Futures)*
 💰 *Entry:* $${signal.entryPrice}
 🛑 *Stop Loss:* $${signal.stopLoss}
 🎯 *Take Profit:* $${signal.takeProfit}
@@ -206,8 +206,8 @@ ${arrow} *Risk/Reward:* 1:1
 🔥 *Indicators Aligned:*
 ${signal.indicators.signals.map((s) => `• ${s.replace(/_/g, " ")}`).join("\n")}
 
-⚡ *TVC:GOLD SCALPING OPPORTUNITY - ACT FAST!*
-  `
+⚡ *GOLD FUTURES SCALPING - ACT FAST!*
+    `
   }
 
   async sendAlert(message) {

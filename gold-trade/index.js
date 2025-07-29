@@ -6,9 +6,9 @@ const technicalAnalysis = require("./services/technicalAnalysis")
 const riskManagement = require("./services/riskManagement")
 const database = require("./database/database")
 const TelegramBotService = require("./services/telegramBot")
-const tradingViewData = require("./services/tradingViewData") // Import tradingViewData service
+const tradingViewData = require("./services/tradingViewData")
 
-class GoldScalpingBot {
+class GoldFuturesScalpingBot {
   constructor() {
     this.telegramBot = new TelegramBotService()
     this.isRunning = false
@@ -17,13 +17,13 @@ class GoldScalpingBot {
   }
 
   async start() {
-    logger.info("🚀 Starting GOLD Scalping Bot...")
+    logger.info("🚀 Starting GOLD Futures Scalping Bot...")
 
     this.isRunning = true
 
     // Send startup notification
     await this.telegramBot.sendAlert(
-      "🚀 *GOLD Scalping Bot Started!*\n\n✅ System Online\n📊 Monitoring GOLD market...",
+      "🚀 *GOLD Futures Scalping Bot Started!*\n\n✅ System Online\n📊 Monitoring COMEX:GC1! market...",
     )
 
     // Schedule market analysis every 30 seconds
@@ -43,7 +43,7 @@ class GoldScalpingBot {
       await this.healthCheck()
     })
 
-    logger.info("✅ GOLD Scalping Bot started successfully")
+    logger.info("✅ GOLD Futures Scalping Bot started successfully")
   }
 
   async analyzeMarket() {
@@ -58,29 +58,29 @@ class GoldScalpingBot {
         return
       }
 
-      // Get TVC:GOLD market data
+      // Get GOLD Futures market data
       const ohlcData = await tradingViewData.getMarketData("5m", 50)
       if (!ohlcData || ohlcData.length < 10) {
-        logger.warn("Insufficient TVC:GOLD market data")
+        logger.warn("Insufficient GOLD Futures market data")
         return
       }
 
-      // Enhanced signal generation for GOLD commodity
+      // Enhanced signal generation for GOLD Futures
       const currentPrice = ohlcData[0].close
       const previousPrice = ohlcData[1].close
       const priceChange = ((currentPrice - previousPrice) / previousPrice) * 100
 
-      // Calculate volatility for GOLD commodity
+      // Calculate volatility for GOLD Futures
       const prices = ohlcData.slice(0, 10).map((d) => d.close)
       const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length
       const volatility = Math.sqrt(
         prices.reduce((sum, price) => sum + Math.pow(price - avgPrice, 2), 0) / prices.length,
       )
 
-      // Generate signal based on GOLD commodity characteristics
-      // GOLD typically moves in larger increments, so we use 0.05% threshold
-      if (Math.abs(priceChange) > 0.05 && volatility > 1.0) {
-        const signal = this.createGoldCommoditySignal(currentPrice, priceChange > 0 ? "BUY" : "SELL", volatility)
+      // Generate signal based on GOLD Futures characteristics
+      // GOLD Futures move in larger increments, so we use 0.03% threshold
+      if (Math.abs(priceChange) > 0.03 && volatility > 2.0) {
+        const signal = this.createGoldFuturesSignal(currentPrice, priceChange > 0 ? "BUY" : "SELL", volatility)
 
         if (signal) {
           const signalId = await database.addSignal(signal)
@@ -90,37 +90,37 @@ class GoldScalpingBot {
           this.lastSignalTime = Date.now()
 
           logger.info(
-            `📊 TVC:GOLD Signal generated: ${signal.type} @ $${signal.entryPrice} (Confidence: ${signal.confidence}%)`,
+            `📊 GOLD Futures Signal generated: ${signal.type} @ $${signal.entryPrice} (Confidence: ${signal.confidence}%)`,
           )
         }
       }
     } catch (error) {
-      logger.error("Error in TVC:GOLD market analysis:", error)
+      logger.error("Error in GOLD Futures market analysis:", error)
     }
   }
 
-  createGoldCommoditySignal(currentPrice, type, volatility) {
-    // GOLD commodity specific ATR calculation (typically $2-5 range)
-    const atr = Math.max(2.0, volatility * 1.5) // Minimum $2 ATR for GOLD
+  createGoldFuturesSignal(currentPrice, type, volatility) {
+    // GOLD Futures specific ATR calculation (typically $5-15 range)
+    const atr = Math.max(5.0, volatility * 2.0) // Minimum $5 ATR for GOLD Futures
 
     const stopLoss = type === "BUY" ? currentPrice - atr : currentPrice + atr
     const takeProfit = type === "BUY" ? currentPrice + atr : currentPrice - atr
 
-    // Higher confidence for GOLD commodity signals with good volatility
-    const baseConfidence = 80
-    const volatilityBonus = Math.min(15, volatility * 2) // Up to 15% bonus for high volatility
+    // Higher confidence for GOLD Futures signals with good volatility
+    const baseConfidence = 82
+    const volatilityBonus = Math.min(13, volatility) // Up to 13% bonus for high volatility
     const confidence = Math.min(95, baseConfidence + volatilityBonus)
 
     return {
       type,
-      entryPrice: Number.parseFloat(currentPrice.toFixed(2)),
-      stopLoss: Number.parseFloat(stopLoss.toFixed(2)),
-      takeProfit: Number.parseFloat(takeProfit.toFixed(2)),
+      entryPrice: Number.parseFloat(currentPrice.toFixed(1)), // GOLD Futures to 1 decimal
+      stopLoss: Number.parseFloat(stopLoss.toFixed(1)),
+      takeProfit: Number.parseFloat(takeProfit.toFixed(1)),
       confidence: Number.parseFloat(confidence.toFixed(1)),
       indicators: {
-        signals: ["TVC_GOLD_MOVEMENT", "VOLATILITY_BREAKOUT"],
+        signals: ["GOLD_FUTURES_MOVEMENT", "VOLATILITY_BREAKOUT", "COMEX_MOMENTUM"],
         volatility: Number.parseFloat(volatility.toFixed(2)),
-        atr: Number.parseFloat(atr.toFixed(2)),
+        atr: Number.parseFloat(atr.toFixed(1)),
       },
       timestamp: new Date().toISOString(),
     }
@@ -137,7 +137,7 @@ class GoldScalpingBot {
       const successRate = ((stats.successful_signals / stats.total_signals) * 100).toFixed(2)
 
       const reportMessage = `
-📊 *Daily Trading Report*
+📊 *Daily GOLD Futures Trading Report*
 
 🎯 *Success Rate:* ${successRate}%
 📈 *Total Signals:* ${stats.total_signals}
@@ -162,10 +162,10 @@ ${
   async healthCheck() {
     try {
       // Check market data connectivity
-      const currentPrice = await marketData.getCurrentPrice(config.trading.symbol)
+      const currentPrice = await tradingViewData.getCurrentPrice()
 
       if (!currentPrice) {
-        await this.telegramBot.sendAlert("⚠️ *System Alert*\n\nMarket data connection issue detected.")
+        await this.telegramBot.sendAlert("⚠️ *System Alert*\n\nGOLD Futures data connection issue detected.")
         return
       }
 
@@ -177,27 +177,27 @@ ${
         return
       }
 
-      logger.info("✅ Health check passed")
+      logger.info("✅ GOLD Futures health check passed")
     } catch (error) {
-      logger.error("Health check failed:", error)
+      logger.error("GOLD Futures health check failed:", error)
       await this.telegramBot.sendAlert("🚨 *System Alert*\n\nHealth check failed. Please check logs.")
     }
   }
 
   async stop() {
-    logger.info("🛑 Stopping GOLD Scalping Bot...")
+    logger.info("🛑 Stopping GOLD Futures Scalping Bot...")
 
     this.isRunning = false
     this.telegramBot.stop()
 
-    await this.telegramBot.sendAlert("🛑 *GOLD Scalping Bot Stopped*\n\n❌ System Offline")
+    await this.telegramBot.sendAlert("🛑 *GOLD Futures Scalping Bot Stopped*\n\n❌ System Offline")
 
-    logger.info("✅ GOLD Scalping Bot stopped successfully")
+    logger.info("✅ GOLD Futures Scalping Bot stopped successfully")
   }
 }
 
 // Initialize and start the bot
-const bot = new GoldScalpingBot()
+const bot = new GoldFuturesScalpingBot()
 
 // Handle graceful shutdown
 process.on("SIGINT", async () => {

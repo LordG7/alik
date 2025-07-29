@@ -5,7 +5,7 @@ const logger = require("../utils/logger")
 class TradingViewDataService {
   constructor() {
     this.baseUrl = config.api.tradingViewUrl
-    this.symbol = config.api.symbol // Now TVC:GOLD
+    this.symbol = config.api.symbol // Now COMEX:GC1! (GOLD Futures)
     this.cache = new Map()
     this.cacheTimeout = 30000
     this.lastRequestTime = 0
@@ -53,8 +53,8 @@ class TradingViewDataService {
     try {
       const payload = {
         filter: [
-          { left: "name", operation: "match", right: "GOLD" },
-          { left: "typespecs", operation: "match", right: ["commodity"] },
+          { left: "name", operation: "match", right: "GC1!" },
+          { left: "typespecs", operation: "match", right: ["futures"] },
         ],
         options: {
           lang: "en",
@@ -63,7 +63,7 @@ class TradingViewDataService {
           query: {
             types: [],
           },
-          tickers: ["TVC:GOLD"], // Use the correct TVC:GOLD symbol
+          tickers: ["COMEX:GC1!", "NYMEX:GC1!", "CME:GC1!"], // Multiple GOLD Futures symbols
         },
         columns: ["name", "close", "change", "change_abs", "high", "low", "volume"],
         sort: { sortBy: "name", sortOrder: "asc" },
@@ -81,7 +81,7 @@ class TradingViewDataService {
 
       if (response.data && response.data.data && response.data.data.length > 0) {
         const goldData = response.data.data[0]
-        logger.info(`TVC:GOLD data received - Price: ${goldData.d[1]}, Change: ${goldData.d[2]}`)
+        logger.info(`GOLD Futures data received - Price: ${goldData.d[1]}, Change: ${goldData.d[2]}`)
 
         return {
           price: goldData.d[1], // close price
@@ -89,19 +89,19 @@ class TradingViewDataService {
           changeAbs: goldData.d[3], // absolute change
           high: goldData.d[4],
           low: goldData.d[5],
-          volume: goldData.d[6] || 1000,
+          volume: goldData.d[6] || 10000,
         }
       }
 
-      throw new Error("No TVC:GOLD data received from TradingView scanner")
+      throw new Error("No GOLD Futures data received from TradingView scanner")
     } catch (error) {
-      logger.warn("TradingView TVC:GOLD scanner failed, trying alternative method:", error.message)
-      return await this.getDataFromWidget("TVC:GOLD")
+      logger.warn("TradingView GOLD Futures scanner failed, trying alternative method:", error.message)
+      return await this.getDataFromWidget("COMEX:GC1!")
     }
   }
 
-  // Alternative method using TradingView widgets specifically for TVC:GOLD
-  async getDataFromWidget(symbol = "TVC:GOLD") {
+  // Alternative method using TradingView widgets specifically for GOLD Futures
+  async getDataFromWidget(symbol = "COMEX:GC1!") {
     try {
       const widgetUrl = `https://symbol-overview-widget.tradingview.com/v1/quotes?symbols=${symbol}`
 
@@ -115,7 +115,7 @@ class TradingViewDataService {
 
       if (response.data && response.data.length > 0) {
         const data = response.data[0]
-        logger.info(`TVC:GOLD widget data - Price: ${data.lp}, Change: ${data.ch}%`)
+        logger.info(`GOLD Futures widget data - Price: ${data.lp}, Change: ${data.ch}%`)
 
         return {
           price: data.lp, // last price
@@ -129,21 +129,21 @@ class TradingViewDataService {
 
       return null
     } catch (error) {
-      logger.warn("TradingView TVC:GOLD widget failed:", error.message)
-      return this.getFallbackGoldPrice()
+      logger.warn("TradingView GOLD Futures widget failed:", error.message)
+      return this.getFallbackGoldFuturesPrice()
     }
   }
 
-  getFallbackGoldPrice() {
-    // More realistic GOLD commodity price range (typically $1800-$2200)
-    const basePrice = 1900 + Math.random() * 300
-    logger.info(`Using fallback GOLD price: ${basePrice}`)
+  getFallbackGoldFuturesPrice() {
+    // GOLD Futures price around current level ($3320.60 as mentioned)
+    const basePrice = 3300 + Math.random() * 50 // $3300-$3350 range
+    logger.info(`Using fallback GOLD Futures price: ${basePrice}`)
 
     return {
       price: basePrice,
-      high: basePrice + Math.random() * 20,
-      low: basePrice - Math.random() * 20,
-      volume: 5000 + Math.random() * 10000,
+      high: basePrice + Math.random() * 30,
+      low: basePrice - Math.random() * 30,
+      volume: 10000 + Math.random() * 50000,
     }
   }
 
@@ -152,32 +152,32 @@ class TradingViewDataService {
     let basePrice = currentData.price
     const intervalMs = interval === "1m" ? 60000 : 300000
 
-    // GOLD commodity specific volatility (typically more volatile than forex)
-    const goldVolatility = 0.002 // 0.2% volatility per candle for GOLD commodity
+    // GOLD Futures specific volatility (higher than spot gold)
+    const goldFuturesVolatility = 0.003 // 0.3% volatility per candle for GOLD Futures
 
     for (let i = 0; i < limit; i++) {
       const trend = (Math.random() - 0.5) * 0.001 // Small trend component
-      const noise = (Math.random() - 0.5) * goldVolatility
+      const noise = (Math.random() - 0.5) * goldFuturesVolatility
       const priceChange = (trend + noise) * basePrice
 
       const open = basePrice
       const close = basePrice + priceChange
 
-      // Generate high and low based on GOLD commodity volatility
-      const range = Math.abs(priceChange) + Math.random() * goldVolatility * basePrice
+      // Generate high and low based on GOLD Futures volatility
+      const range = Math.abs(priceChange) + Math.random() * goldFuturesVolatility * basePrice
       const high = Math.max(open, close) + Math.random() * range
       const low = Math.min(open, close) - Math.random() * range
 
-      // GOLD commodity typically has higher volume
-      const baseVolume = 5000
-      const volume = baseVolume + Math.random() * 15000
+      // GOLD Futures typically have very high volume
+      const baseVolume = 20000
+      const volume = baseVolume + Math.random() * 80000
 
       data.unshift({
         timestamp: Date.now() - i * intervalMs,
-        open: Number.parseFloat(open.toFixed(2)),
-        high: Number.parseFloat(high.toFixed(2)),
-        low: Number.parseFloat(low.toFixed(2)),
-        close: Number.parseFloat(close.toFixed(2)),
+        open: Number.parseFloat(open.toFixed(1)), // GOLD Futures to 1 decimal
+        high: Number.parseFloat(high.toFixed(1)),
+        low: Number.parseFloat(low.toFixed(1)),
+        close: Number.parseFloat(close.toFixed(1)),
         volume: Math.floor(volume),
       })
 
@@ -188,25 +188,25 @@ class TradingViewDataService {
   }
 
   generateFallbackData(limit) {
-    logger.info("Using fallback market data generation")
+    logger.info("Using fallback GOLD Futures market data generation")
 
     const data = []
-    let basePrice = 2050 + Math.random() * 50 // GOLD price around 2050-2100
+    let basePrice = 3320 + Math.random() * 30 // Around current price level
 
     for (let i = 0; i < limit; i++) {
-      const change = (Math.random() - 0.5) * 8 // Random price movement
+      const change = (Math.random() - 0.5) * 20 // Random price movement for futures
       const open = basePrice
       const close = basePrice + change
-      const high = Math.max(open, close) + Math.random() * 3
-      const low = Math.min(open, close) - Math.random() * 3
-      const volume = 1000 + Math.random() * 5000
+      const high = Math.max(open, close) + Math.random() * 10
+      const low = Math.min(open, close) - Math.random() * 10
+      const volume = 20000 + Math.random() * 80000
 
       data.unshift({
         timestamp: Date.now() - i * 60000, // 1 minute intervals
-        open: Number.parseFloat(open.toFixed(2)),
-        high: Number.parseFloat(high.toFixed(2)),
-        low: Number.parseFloat(low.toFixed(2)),
-        close: Number.parseFloat(close.toFixed(2)),
+        open: Number.parseFloat(open.toFixed(1)),
+        high: Number.parseFloat(high.toFixed(1)),
+        low: Number.parseFloat(low.toFixed(1)),
+        close: Number.parseFloat(close.toFixed(1)),
         volume: Math.floor(volume),
       })
 
@@ -235,7 +235,7 @@ class TradingViewDataService {
       return currentData.price
     } catch (error) {
       logger.error("Error getting current price:", error)
-      return 2050 + Math.random() * 50 // Fallback price
+      return 3320 + Math.random() * 30 // Fallback price around current level
     }
   }
 
