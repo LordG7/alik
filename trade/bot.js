@@ -63,10 +63,6 @@ This bot provides professional trading signals for Binance futures trading.
 
 *Commands:*
 /start - Start the bot
-/coin - Select trading coin
-/status - Check bot status
-/positions - View open positions
-/pnl - Daily profit/loss
 /stop - Stop receiving signals
 /help - Show help menu
 
