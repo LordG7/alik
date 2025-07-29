@@ -77,8 +77,8 @@ Click the button below to select your trading coin:
         welcomeMessage,
         Markup.inlineKeyboard([
           [Markup.button.callback("📈 Select Coin", "select_coin")],
-          [Markup.button.callback("📊 View Positions", "view_positions")],
-          [Markup.button.callback("💰 Check PnL", "check_pnl")],
+          // [Markup.button.callback("📊 View Positions", "view_positions")],
+          // [Markup.button.callback("💰 Check PnL", "check_pnl")],
         ]),
       )
     })
@@ -124,7 +124,7 @@ ${coinsStatus}
         statusMessage,
         Markup.inlineKeyboard([
           [Markup.button.callback("📈 Change Coins", "select_coin")],
-          [Markup.button.callback("📊 View Positions", "view_positions")],
+          // [Markup.button.callback("📊 View Positions", "view_positions")],
         ]),
       )
     })
@@ -330,7 +330,7 @@ ${coinsStatus}
           await ctx.replyWithMarkdown(
             instructions,
             Markup.inlineKeyboard([
-              [Markup.button.url("🚀 Run on Binance", this.generateBinanceUrl(signal))],
+              // [Markup.button.url("🚀 Run on Binance", this.generateBinanceUrl(signal))],
               [Markup.button.callback("❌ Close Signal", `close_${symbol}`)],
             ]),
           )
@@ -457,7 +457,7 @@ ${selectedList || "None selected"}
     await ctx.replyWithMarkdown(
       message,
       Markup.inlineKeyboard([
-        [Markup.button.callback("🔄 Refresh", "view_positions")],
+        // [Markup.button.callback("🔄 Refresh", "view_positions")],
         [Markup.button.callback("📈 Change Coins", "select_coin")],
       ]),
     )
@@ -648,8 +648,8 @@ ${pnl > 0 ? "🎉 Congratulations on the profit!" : "💪 Better luck next time!
       await this.bot.telegram.sendMessage(userId, message, {
         parse_mode: "Markdown",
         reply_markup: Markup.inlineKeyboard([
-          [Markup.button.callback("📊 View Active Signals", "view_active_signals")],
-          [Markup.button.callback("💰 Check P&L", "check_pnl")],
+          // [Markup.button.callback("📊 View Active Signals", "view_active_signals")],
+          // [Markup.button.callback("💰 Check P&L", "check_pnl")],
         ]).reply_markup,
       })
     } catch (error) {
@@ -758,12 +758,12 @@ ${signal.takeProfits.map((tp, i) => `TP${i + 1}: $${tp}`).join("\n")}
       await this.bot.telegram.sendMessage(userId, message, {
         parse_mode: "Markdown",
         reply_markup: Markup.inlineKeyboard([
-          [Markup.button.url("🚀 Run on Binance", this.generateBinanceUrl(signal))],
+          // [Markup.button.url("🚀 Run on Binance", this.generateBinanceUrl(signal))],
           [
-            Markup.button.callback("📊 View Chart", `chart_${signal.symbol}`),
+            // Markup.button.callback("📊 View Chart", `chart_${signal.symbol}`),
             Markup.button.callback("❌ Close Signal", `close_${signal.symbol}`),
           ],
-          [Markup.button.callback("📈 Active Signals", "view_active_signals")],
+          // [Markup.button.callback("📈 Active Signals", "view_active_signals")],
         ]).reply_markup,
       })
     } catch (error) {
