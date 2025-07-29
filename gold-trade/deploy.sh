@@ -11,73 +11,62 @@ sudo apt update && sudo apt upgrade -y
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
-# Install Docker
-sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-compose
-
 # Create application directory
 sudo mkdir -p /opt/gold-scalping-bot
 cd /opt/gold-scalping-bot
 
-# Copy application files (assuming they're in current directory)
-sudo cp -r . /opt/gold-scalping-bot/
-
-# Create data and logs directories
-sudo mkdir -p data logs
+# Create all necessary directories
+sudo mkdir -p config services utils database logs data
 
 # Set permissions
 sudo chown -R $USER:$USER /opt/gold-scalping-bot
 
-# Create environment file
-cat > .env << EOF
-BOT_TOKEN=your_telegram_bot_token_here
-ADMIN_USER_ID=your_telegram_user_id
-DATABASE_PATH=/app/data/trading_bot.db
-LOG_LEVEL=info
-ENVIRONMENT=production
-EOF
+echo "📁 Creating application files..."
 
-echo "⚠️  Please edit .env file with your actual credentials"
+# Create package.json
+cat > package.json << 'EOF'
+{
+  "name": "gold-scalping-telegram-bot",
+  "version": "1.0.0",
+  "description": "Advanced GOLD scalping bot with Telegram integration",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3",
+    "sqlite3": "^5.1.6",
+    "telegraf": "^4.15.6",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
+EOF
 
 # Install dependencies
+echo "📦 Installing dependencies..."
 npm install
 
-# Create systemd service
-sudo tee /etc/systemd/system/gold-scalping-bot.service > /dev/null <<EOF
-[Unit]
-Description=GOLD Scalping Telegram Bot
-After=network.target
-
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=/opt/gold-scalping-bot
-ExecStart=/usr/bin/node index.js
-Restart=always
-RestartSec=10
-Environment=NODE_ENV=production
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start service
-sudo systemctl daemon-reload
-sudo systemctl enable gold-scalping-bot
-
-echo "✅ Deployment completed!"
+echo "✅ Dependencies installed successfully!"
 echo ""
 echo "📝 Next steps:"
-echo "1. Edit /opt/gold-scalping-bot/.env with your credentials"
-echo "2. Start the bot: sudo systemctl start gold-scalping-bot"
-echo "3. Check status: sudo systemctl status gold-scalping-bot"
-echo "4. View logs: sudo journalctl -u gold-scalping-bot -f"
+echo "1. Copy all your bot files to /opt/gold-scalping-bot/"
+echo "2. Make sure index.js exists in the root directory"
+echo "3. Edit .env file with your credentials"
+echo "4. Start the bot: sudo systemctl start gold-scalping-bot"
 echo ""
-echo "🔧 Management commands:"
-echo "• Start: sudo systemctl start gold-scalping-bot"
-echo "• Stop: sudo systemctl stop gold-scalping-bot"
-echo "• Restart: sudo systemctl restart gold-scalping-bot"
-echo "• Status: sudo systemctl status gold-scalping-bot"
+echo "📂 Current directory structure should be:"
+echo "/opt/gold-scalping-bot/"
+echo "├── index.js"
+echo "├── package.json"
+echo "├── .env"
+echo "├── config/"
+echo "├── services/"
+echo "├── utils/"
+echo "├── database/"
+echo "└── logs/"
