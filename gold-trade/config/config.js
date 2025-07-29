@@ -54,7 +54,7 @@ module.exports = {
   },
   api: {
     tradingViewUrl: "https://scanner.tradingview.com",
-    symbol: "FX_IDC:XAUUSD",
+    symbol: "TVC:GOLD", // Changed from FX_IDC:XAUUSD to TVC:GOLD
     intervals: ["1m", "5m"],
     requestTimeout: 10000,
   },

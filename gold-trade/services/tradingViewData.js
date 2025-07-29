@@ -5,11 +5,11 @@ const logger = require("../utils/logger")
 class TradingViewDataService {
   constructor() {
     this.baseUrl = config.api.tradingViewUrl
-    this.symbol = config.api.symbol
+    this.symbol = config.api.symbol // Now TVC:GOLD
     this.cache = new Map()
-    this.cacheTimeout = 30000 // 30 seconds
+    this.cacheTimeout = 30000
     this.lastRequestTime = 0
-    this.requestDelay = 2000 // 2 seconds between requests to avoid rate limiting
+    this.requestDelay = 2000
   }
 
   async getMarketData(interval = "5m", limit = 100) {
@@ -53,8 +53,8 @@ class TradingViewDataService {
     try {
       const payload = {
         filter: [
-          { left: "name", operation: "match", right: "XAUUSD" },
-          { left: "typespecs", operation: "match", right: ["cfd"] },
+          { left: "name", operation: "match", right: "GOLD" },
+          { left: "typespecs", operation: "match", right: ["commodity"] },
         ],
         options: {
           lang: "en",
@@ -63,7 +63,7 @@ class TradingViewDataService {
           query: {
             types: [],
           },
-          tickers: ["FX_IDC:XAUUSD", "OANDA:XAUUSD", "FOREXCOM:XAUUSD"],
+          tickers: ["TVC:GOLD"], // Use the correct TVC:GOLD symbol
         },
         columns: ["name", "close", "change", "change_abs", "high", "low", "volume"],
         sort: { sortBy: "name", sortOrder: "asc" },
@@ -81,55 +81,96 @@ class TradingViewDataService {
 
       if (response.data && response.data.data && response.data.data.length > 0) {
         const goldData = response.data.data[0]
+        logger.info(`TVC:GOLD data received - Price: ${goldData.d[1]}, Change: ${goldData.d[2]}`)
+
         return {
           price: goldData.d[1], // close price
-          high: goldData.d[3],
-          low: goldData.d[4],
-          volume: goldData.d[5] || 1000,
+          change: goldData.d[2], // change
+          changeAbs: goldData.d[3], // absolute change
+          high: goldData.d[4],
+          low: goldData.d[5],
+          volume: goldData.d[6] || 1000,
         }
       }
 
-      throw new Error("No data received from TradingView scanner")
+      throw new Error("No TVC:GOLD data received from TradingView scanner")
     } catch (error) {
-      logger.warn("TradingView scanner failed, using fallback:", error.message)
+      logger.warn("TradingView TVC:GOLD scanner failed, trying alternative method:", error.message)
+      return await this.getDataFromWidget("TVC:GOLD")
+    }
+  }
 
-      // Return realistic GOLD price range as fallback
-      const basePrice = 2000 + Math.random() * 100 // GOLD typically 2000-2100
-      return {
-        price: basePrice,
-        high: basePrice + Math.random() * 10,
-        low: basePrice - Math.random() * 10,
-        volume: 1000 + Math.random() * 5000,
+  // Alternative method using TradingView widgets specifically for TVC:GOLD
+  async getDataFromWidget(symbol = "TVC:GOLD") {
+    try {
+      const widgetUrl = `https://symbol-overview-widget.tradingview.com/v1/quotes?symbols=${symbol}`
+
+      const response = await axios.get(widgetUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Referer: "https://www.tradingview.com/",
+        },
+        timeout: 5000,
+      })
+
+      if (response.data && response.data.length > 0) {
+        const data = response.data[0]
+        logger.info(`TVC:GOLD widget data - Price: ${data.lp}, Change: ${data.ch}%`)
+
+        return {
+          price: data.lp, // last price
+          change: data.ch,
+          changePercent: data.chp,
+          high: data.high_price,
+          low: data.low_price,
+          volume: data.volume,
+        }
       }
+
+      return null
+    } catch (error) {
+      logger.warn("TradingView TVC:GOLD widget failed:", error.message)
+      return this.getFallbackGoldPrice()
+    }
+  }
+
+  getFallbackGoldPrice() {
+    // More realistic GOLD commodity price range (typically $1800-$2200)
+    const basePrice = 1900 + Math.random() * 300
+    logger.info(`Using fallback GOLD price: ${basePrice}`)
+
+    return {
+      price: basePrice,
+      high: basePrice + Math.random() * 20,
+      low: basePrice - Math.random() * 20,
+      volume: 5000 + Math.random() * 10000,
     }
   }
 
   generateRealisticOHLCData(currentData, limit, interval) {
     const data = []
     let basePrice = currentData.price
+    const intervalMs = interval === "1m" ? 60000 : 300000
 
-    // Calculate time interval in milliseconds
-    const intervalMs = this.getIntervalMs(interval)
+    // GOLD commodity specific volatility (typically more volatile than forex)
+    const goldVolatility = 0.002 // 0.2% volatility per candle for GOLD commodity
 
     for (let i = 0; i < limit; i++) {
-      // Generate realistic price movement
-      const volatility = 0.001 // 0.1% volatility per candle
-      const trend = (Math.random() - 0.5) * 0.0005 // Small trend component
-      const noise = (Math.random() - 0.5) * volatility
-
+      const trend = (Math.random() - 0.5) * 0.001 // Small trend component
+      const noise = (Math.random() - 0.5) * goldVolatility
       const priceChange = (trend + noise) * basePrice
 
       const open = basePrice
       const close = basePrice + priceChange
 
-      // Generate high and low based on volatility
-      const range = Math.abs(priceChange) + Math.random() * volatility * basePrice
+      // Generate high and low based on GOLD commodity volatility
+      const range = Math.abs(priceChange) + Math.random() * goldVolatility * basePrice
       const high = Math.max(open, close) + Math.random() * range
       const low = Math.min(open, close) - Math.random() * range
 
-      // Generate volume with some randomness
-      const baseVolume = 1000
-      const volume = baseVolume + Math.random() * 4000
+      // GOLD commodity typically has higher volume
+      const baseVolume = 5000
+      const volume = baseVolume + Math.random() * 15000
 
       data.unshift({
         timestamp: Date.now() - i * intervalMs,
@@ -195,38 +236,6 @@ class TradingViewDataService {
     } catch (error) {
       logger.error("Error getting current price:", error)
       return 2050 + Math.random() * 50 // Fallback price
-    }
-  }
-
-  // Alternative method using TradingView widgets (if scanner fails)
-  async getDataFromWidget(symbol = "FX_IDC:XAUUSD") {
-    try {
-      const widgetUrl = `https://symbol-overview-widget.tradingview.com/v1/quotes?symbols=${symbol}`
-
-      const response = await axios.get(widgetUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          Referer: "https://www.tradingview.com/",
-        },
-        timeout: 5000,
-      })
-
-      if (response.data && response.data.length > 0) {
-        const data = response.data[0]
-        return {
-          price: data.lp, // last price
-          change: data.ch,
-          changePercent: data.chp,
-          high: data.high_price,
-          low: data.low_price,
-          volume: data.volume,
-        }
-      }
-
-      return null
-    } catch (error) {
-      logger.warn("TradingView widget failed:", error.message)
-      return null
     }
   }
 

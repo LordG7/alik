@@ -30,9 +30,11 @@ class TelegramBotService {
         const welcomeMessage = `
 🏆 *Welcome to GOLD Scalping Bot!*
 
+📊 *Tracking: TVC:GOLD (US$/OZ) Commodity CFD*
+
 🔥 *Features:*
 • Advanced technical analysis with 10+ indicators
-• Real-time GOLD (XAU/USD) signals
+• Real-time GOLD commodity CFD signals
 • 95%+ accuracy target
 • Risk management included
 • 1-5 minute scalping signals
@@ -44,7 +46,7 @@ class TelegramBotService {
 /stop - Stop receiving signals
 /help - Show this help message
 
-⚡ *Ready to receive premium GOLD signals!*
+⚡ *Ready to receive premium GOLD commodity signals!*
         `
 
         await ctx.replyWithMarkdown(
@@ -66,8 +68,9 @@ class TelegramBotService {
       const status = `
 🤖 *Bot Status: ACTIVE*
 
-📈 *Market: GOLD (XAU/USD)*
-⏰ *Trading Hours: 09:00 - 20:00 EST*
+📈 *Market: TVC:GOLD (US$/OZ) Commodity CFD*
+🏛️ *Exchange: TradingView Composite*
+⏰ *Trading Hours: 24/5 (Mon-Fri)*
 🎯 *Target Accuracy: 95%+*
 ⚡ *Signal Frequency: 1-5 minutes*
 
@@ -81,7 +84,6 @@ class TelegramBotService {
 • ATR (14) - Volatility
 • Bollinger Bands - Breakouts
 • MACD - Trend Changes
-• Fractals - Support/Resistance
 
 ✅ *System Status: OPTIMAL*
       `
@@ -190,8 +192,9 @@ Trading involves risk. Never risk more than you can afford to lose.
     const arrow = signal.type === "BUY" ? "📈" : "📉"
 
     return `
-${emoji} *${signal.type} GOLD SIGNAL*
+${emoji} *${signal.type} TVC:GOLD SIGNAL*
 
+🏛️ *Instrument: GOLD (US$/OZ) Commodity CFD*
 💰 *Entry:* $${signal.entryPrice}
 🛑 *Stop Loss:* $${signal.stopLoss}
 🎯 *Take Profit:* $${signal.takeProfit}
@@ -203,8 +206,8 @@ ${arrow} *Risk/Reward:* 1:1
 🔥 *Indicators Aligned:*
 ${signal.indicators.signals.map((s) => `• ${s.replace(/_/g, " ")}`).join("\n")}
 
-⚡ *SCALPING OPPORTUNITY - ACT FAST!*
-    `
+⚡ *TVC:GOLD SCALPING OPPORTUNITY - ACT FAST!*
+  `
   }
 
   async sendAlert(message) {
