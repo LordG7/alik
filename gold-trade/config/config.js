@@ -13,7 +13,7 @@ module.exports = {
     tradingHours: {
       start: 9,
       end: 20,
-      timezone: "America/New_York",
+      timezone: "Asia/Baku",
     },
   },
   indicators: {
